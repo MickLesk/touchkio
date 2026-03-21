@@ -1,7 +1,7 @@
 <!doctype html>
 <html>
   <head>
-    <meta http-equiv="Content-Security-Policy" content="default-src 'unsafe-inline'" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'" />
     <style>
       [data-theme="dark"] {
         --primary-color: rgba(225, 225, 225, 1);
@@ -180,44 +180,42 @@
       </li>
     </menu>
     <script>
-      const { ipcRenderer } = require("electron");
-
       const registerSendEvents = () => {
         document.querySelectorAll("button").forEach((button) => {
           button.addEventListener("click", (e) => {
-            ipcRenderer.send("button-click", { id: e.target.id });
+            window.ipc.send("button-click", { id: e.target.id });
           });
         });
         document.querySelectorAll("input").forEach((input) => {
           input.addEventListener("blur", (e) => {
-            ipcRenderer.send("input-blur", { id: e.target.id });
+            window.ipc.send("input-blur", { id: e.target.id });
           });
           input.addEventListener("focus", (e) => {
-            ipcRenderer.send("input-focus", { id: e.target.id });
+            window.ipc.send("input-focus", { id: e.target.id });
           });
           input.addEventListener("keydown", (e) => {
             if (e.key === "Enter") {
-              ipcRenderer.send("input-enter", { id: e.target.id, text: e.target.value });
+              window.ipc.send("input-enter", { id: e.target.id, text: e.target.value });
             }
           });
         });
       };
 
       const registerReceiveEvents = () => {
-        ipcRenderer.on("button-disabled", (e, button) => {
+        window.ipc.on("button-disabled", (button) => {
           document.getElementById(button.id).parentNode.classList.toggle("disabled", button.disabled);
         });
-        ipcRenderer.on("button-hidden", (e, button) => {
+        window.ipc.on("button-hidden", (button) => {
           document.getElementById(button.id).parentNode.classList.toggle("hidden", button.hidden);
         });
-        ipcRenderer.on("input-readonly", (e, input) => {
+        window.ipc.on("input-readonly", (input) => {
           document.getElementById(input.id).readOnly = input.readonly;
         });
-        ipcRenderer.on("input-text", (e, input) => {
+        window.ipc.on("input-text", (input) => {
           document.getElementById(input.id).value = input.text;
           document.getElementById(input.id).placeholder = input.placeholder;
         });
-        ipcRenderer.on("input-select", (e, input) => {
+        window.ipc.on("input-select", (input) => {
           window.getSelection()?.removeAllRanges();
           if (input.select) {
             document.getElementById(input.id).select();
@@ -225,7 +223,7 @@
             document.getElementById(input.id).blur();
           }
         });
-        ipcRenderer.on("data-theme", (e, data) => {
+        window.ipc.on("data-theme", (data) => {
           document.documentElement.setAttribute("data-theme", data.theme);
         });
       };

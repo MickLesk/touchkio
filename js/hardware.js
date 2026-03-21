@@ -262,11 +262,11 @@ const sessionType = () => {
   if (!commandExists("loginctl")) {
     return null;
   }
-  return execSyncCommand("loginctl", [
-    "show-session",
-    "$(loginctl show-user $(whoami) -p Display --value)",
-    "-p Type --value",
-  ]);
+  const display = execSyncCommand("loginctl", ["show-user", os.userInfo().username, "-p", "Display", "--value"]);
+  if (!display) {
+    return null;
+  }
+  return execSyncCommand("loginctl", ["show-session", display, "-p", "Type", "--value"]);
 };
 
 /**
@@ -694,10 +694,19 @@ const getDisplayBrightness = () => {
   }
   switch (HARDWARE.display.brightness.command) {
     case "ddcutil":
+      // Use cached value to avoid slow synchronous I2C calls
+      const cached = HARDWARE.display.brightness.value.brightness;
+      if (cached !== undefined && cached !== null && cached !== "") {
+        return parseInt(cached, 10);
+      }
+      // Sync fallback for initial read only
       const output = execSyncCommand("sudo", ["ddcutil", "getvcp", "10", "--brief"]);
       const match = output ? output.match(/VCP 10 C (\d+) (\d+)/) : null;
       if (match) {
-        return parseInt(match[1], 10);
+        const value = parseInt(match[1], 10);
+        HARDWARE.display.brightness.value.brightness = `${value}`;
+        fs.writeFileSync(path.join(APP.cache, "Brightness.vcp"), `${value}`);
+        return value;
       }
       return null;
   }
@@ -853,7 +862,7 @@ const checkPackageUpgrades = () => {
   if (!commandExists("apt")) {
     return [];
   }
-  const output = execSyncCommand("apt", ["list", "--upgradable", "2>/dev/null"]);
+  const output = execSyncCommand("apt", ["list", "--upgradable"]);
   const packages = (output || "").trim().split("\n");
   packages.shift();
   return packages;
@@ -898,7 +907,7 @@ const rebootSystem = (callback = null) => {
  */
 const sudoRights = () => {
   try {
-    cpr.execSync(`sudo -n true`, { encoding: "utf8", stdio: "ignore" });
+    cpr.execFileSync("sudo", ["-n", "true"], { encoding: "utf8", stdio: "ignore" });
     return true;
   } catch {}
   return false;
@@ -912,7 +921,7 @@ const sudoRights = () => {
  */
 const serviceRuns = (name) => {
   try {
-    cpr.execSync(`systemctl --user is-active ${name}`, { encoding: "utf8", stdio: "ignore" });
+    cpr.execFileSync("systemctl", ["--user", "is-active", name], { encoding: "utf8", stdio: "ignore" });
     return true;
   } catch {}
   return false;
@@ -926,7 +935,7 @@ const serviceRuns = (name) => {
  */
 const processRuns = (name) => {
   try {
-    cpr.execSync(`pidof ${name}`, { encoding: "utf8", stdio: "ignore" });
+    cpr.execFileSync("pidof", [name], { encoding: "utf8", stdio: "ignore" });
     return true;
   } catch {}
   return false;
@@ -940,7 +949,7 @@ const processRuns = (name) => {
  */
 const commandExists = (name) => {
   try {
-    cpr.execSync(`which ${name}`, { encoding: "utf8", stdio: "ignore" });
+    cpr.execFileSync("which", [name], { encoding: "utf8", stdio: "ignore" });
     return true;
   } catch {}
   return false;
@@ -956,7 +965,7 @@ const commandExists = (name) => {
 const execSyncCommand = (cmd, args) => {
   try {
     console.debug(`hardware.js: execSyncCommand(${[cmd, ...args].join(" ")})`);
-    const output = cpr.execSync([cmd, ...args].join(" "), { encoding: "utf8" });
+    const output = cpr.execFileSync(cmd, args, { encoding: "utf8" });
     return output.trim().replace(/\0/g, "");
   } catch (error) {
     console.error(`Execute Sync: '${[cmd, ...args].join(" ")}' --> ${error.message}`.trim());
@@ -1132,11 +1141,10 @@ const dbusMonitor = (path, callback = null) => {
 const dbusCall = (path, method, values, callback = null) => {
   const cmd = "dbus-send";
   const iface = path.slice(1).replace(/\//g, ".");
-  const dest = `${iface} ${path} ${iface}.${method} ${values.join(" ")}`;
-  const args = ["--print-reply", "--type=method_call", `--dest=${dest}`];
+  const args = ["--print-reply", "--type=method_call", `--dest=${iface}`, path, `${iface}.${method}`, ...values];
   try {
     console.debug(`hardware.js: dbusCall(${[cmd, ...args].join(" ")})`);
-    const output = cpr.execSync([cmd, ...args].join(" ").trim(), { encoding: "utf8" });
+    const output = cpr.execFileSync(cmd, args, { encoding: "utf8" });
     if (typeof callback === "function") callback(output.trim().replace(/\0/g, ""), null);
   } catch (error) {
     console.error("Call D-Bus:", error.message);

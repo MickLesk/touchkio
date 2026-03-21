@@ -30,6 +30,7 @@ global.WEBVIEW = global.WEBVIEW || {
       focused: null,
     },
     screenshot: null,
+    screensaver: false,
   },
 };
 
@@ -168,8 +169,9 @@ const init = async () => {
   WEBVIEW.pager = new WebContentsView({
     transparent: true,
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(APP.path, "js", "preload.js"),
     },
   });
   WEBVIEW.pager.setBackgroundColor("#00000000");
@@ -180,8 +182,9 @@ const init = async () => {
   WEBVIEW.widget = new WebContentsView({
     transparent: true,
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(APP.path, "js", "preload.js"),
     },
   });
   WEBVIEW.widget.setBackgroundColor("#00000000");
@@ -192,8 +195,9 @@ const init = async () => {
   WEBVIEW.status = new WebContentsView({
     transparent: true,
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(APP.path, "js", "preload.js"),
     },
   });
   WEBVIEW.status.setBackgroundColor("#00000000");
@@ -204,8 +208,9 @@ const init = async () => {
   WEBVIEW.navigation = new WebContentsView({
     transparent: true,
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(APP.path, "js", "preload.js"),
     },
   });
   WEBVIEW.navigation.setBackgroundColor("#00000000");
@@ -332,10 +337,8 @@ const updateView = () => {
     }
   });
 
-  // Update webview screenshot
-  captureView(1000).then(() => {
-    EVENTS.emit("updateScreenshot");
-  });
+  // Update webview screenshot (debounced)
+  debouncedCapture();
   EVENTS.emit("updatePage");
   update();
 };
@@ -718,10 +721,8 @@ const resizeView = () => {
     });
   }
 
-  // Update webview screenshot
-  captureView(1000).then(() => {
-    EVENTS.emit("updateScreenshot");
-  });
+  // Update webview screenshot (debounced)
+  debouncedCapture();
 };
 
 /**
@@ -834,6 +835,18 @@ const windowEvents = async () => {
         WEBVIEW.views[WEBVIEW.viewActive].webContents.focus();
       }
       toggleNavigation("OFF");
+    }
+
+    // Screensaver: turn display off after inactivity
+    const screensaverTimeout = parseInt(ARGS.web_screensaver) || 0;
+    if (screensaverTimeout > 0) {
+      if (delta > screensaverTimeout && !WEBVIEW.tracker.screensaver) {
+        WEBVIEW.tracker.screensaver = true;
+        hardware.setDisplayStatus("OFF");
+        console.info("Screensaver: Display OFF");
+      } else if (delta <= screensaverTimeout && WEBVIEW.tracker.screensaver) {
+        WEBVIEW.tracker.screensaver = false;
+      }
     }
   }, 1 * 1000);
 };
@@ -1207,6 +1220,9 @@ const appEvents = async () => {
     const status = hardware.getDisplayStatus();
     if (status) {
       WEBVIEW.tracker.display[status.toLowerCase()] = new Date();
+      if (status === "ON") {
+        WEBVIEW.tracker.screensaver = false;
+      }
     }
   });
   EVENTS.on("updateStatus", () => {
@@ -1248,7 +1264,8 @@ const appEvents = async () => {
     console.error(`${details.type} Process ${details.reason} (code ${details.exitCode}): ${name}`);
   });
 
-  // Update latest screenshot (every full 1min)
+  // Update latest screenshot (configurable interval, default 1min)
+  const screenshotInterval = (parseInt(ARGS.app_screenshot_interval) || 60) * 1000;
   interval(() => {
     if (APP.exiting) {
       return;
@@ -1256,15 +1273,16 @@ const appEvents = async () => {
     captureView(5000).then(() => {
       EVENTS.emit("updateScreenshot");
     });
-  }, 60 * 1000);
+  }, screenshotInterval);
 
-  // Check latest release (every full 2h)
+  // Check latest release (configurable interval, default 2h)
+  const releaseInterval = (parseInt(ARGS.app_release_interval) || 7200) * 1000;
   interval(() => {
     if (APP.exiting) {
       return;
     }
     latestRelease();
-  }, 7200 * 1000);
+  }, releaseInterval);
   latestRelease();
 
   // Webview initialized
@@ -1385,6 +1403,21 @@ const captureView = async (wait, view = WEBVIEW.views[WEBVIEW.viewActive]) => {
 };
 
 /**
+ * Debounced screenshot capture to avoid redundant captures during rapid events.
+ *
+ * @param {number} delay - Debounce delay in milliseconds.
+ */
+let captureTimer = null;
+const debouncedCapture = (delay = 2000) => {
+  clearTimeout(captureTimer);
+  captureTimer = setTimeout(() => {
+    captureView(0).then(() => {
+      EVENTS.emit("updateScreenshot");
+    });
+  }, delay);
+};
+
+/**
  * Generates a html template for a spinning loader.
  *
  * @param {number} size - The size of the circle.
@@ -1400,6 +1433,7 @@ const loaderHtml = (size, speed, theme) => {
   const html = `
     <html>
       <head>
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'" />
         <style>
           body {
             display: flex;
@@ -1441,9 +1475,12 @@ const errorHtml = (code, text, url, theme) => {
     dark: { icon: "#FFA500", text: "#E5E5E5", background: "#111111" },
     light: { icon: "#FFA500", text: "#1A1A1A", background: "#FAFAFA" },
   }[theme];
+  const safeUrl = url.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const safeText = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   const html = `
     <html>
       <head>
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'" />
         <style>
           body {
             display: flex;
@@ -1474,8 +1511,8 @@ const errorHtml = (code, text, url, theme) => {
         <div>
           <p class="icon">&#9888;</p>
           <h1 class="title">Whoopsie!</h1>
-          <p class="url"><strong>Loading:</strong> ${url}</p>
-          <p class="error"><strong>Error:</strong> ${text} (${code})</p>
+          <p class="url"><strong>Loading:</strong> ${safeUrl}</p>
+          <p class="error"><strong>Error:</strong> ${safeText} (${code})</p>
         </div>
       </body>
     </html>`;

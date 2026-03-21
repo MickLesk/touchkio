@@ -1,7 +1,7 @@
 <!doctype html>
 <html>
   <head>
-    <meta http-equiv="Content-Security-Policy" content="default-src 'unsafe-inline'" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'" />
     <style>
       [data-theme="dark"] {
         --primary-color: rgba(229, 229, 229, 1);
@@ -133,24 +133,22 @@
       </li>
     </menu>
     <script>
-      const { ipcRenderer } = require("electron");
-
       const registerSendEvents = () => {
         document.querySelectorAll("button").forEach((button) => {
           button.addEventListener("click", (e) => {
-            ipcRenderer.send("button-click", { id: e.target.id });
+            window.ipc.send("button-click", { id: e.target.id });
           });
         });
       };
 
       const registerReceiveEvents = () => {
-        ipcRenderer.on("button-disabled", (e, button) => {
+        window.ipc.on("button-disabled", (button) => {
           document.getElementById(button.id).parentNode.classList.toggle("disabled", button.disabled);
         });
-        ipcRenderer.on("text-content", (e, text) => {
+        window.ipc.on("text-content", (text) => {
           document.getElementById(text.id).textContent = text.content;
         });
-        ipcRenderer.on("data-theme", (e, data) => {
+        window.ipc.on("data-theme", (data) => {
           document.documentElement.setAttribute("data-theme", data.theme);
         });
       };

@@ -1,7 +1,7 @@
 <!doctype html>
 <html>
   <head>
-    <meta http-equiv="Content-Security-Policy" content="default-src 'unsafe-inline'" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'" />
     <style>
       [data-theme="dark"] {
         --primary-color: rgba(225, 225, 225, 1);
@@ -111,21 +111,19 @@
       </li>
     </menu>
     <script>
-      const { ipcRenderer } = require("electron");
-
       const registerSendEvents = () => {
         document.querySelectorAll("button").forEach((button) => {
           button.addEventListener("click", (e) => {
-            ipcRenderer.send("button-click", { id: e.target.id });
+            window.ipc.send("button-click", { id: e.target.id });
           });
         });
       };
 
       const registerReceiveEvents = () => {
-        ipcRenderer.on("button-hidden", (e, button) => {
+        window.ipc.on("button-hidden", (button) => {
           document.getElementById(button.id).parentNode.classList.toggle("hidden", button.hidden);
         });
-        ipcRenderer.on("data-theme", (e, data) => {
+        window.ipc.on("data-theme", (data) => {
           document.documentElement.setAttribute("data-theme", data.theme);
         });
       };

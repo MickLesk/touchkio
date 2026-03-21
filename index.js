@@ -441,32 +441,48 @@ const readArgs = (path) => {
 };
 
 /**
- * Helper function for string encryption.
+ * Helper function for string encryption (AES-256-GCM).
  *
  * @param {string} value - Plain text value.
  * @returns {string} Encrypted value.
  */
 const encrypt = (value) => {
-  const iv = crypto.randomBytes(16);
+  const iv = crypto.randomBytes(12);
   const key = crypto.scryptSync(hardware.getMachineId(), APP.name, 32);
-  const cipher = crypto.createCipheriv("aes-256-cbc", key, iv);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
   let encrypted = cipher.update(value, "utf8", "hex");
   encrypted += cipher.final("hex");
-  return Buffer.from(iv.toString("hex") + ":" + encrypted).toString("base64");
+  const authTag = cipher.getAuthTag().toString("hex");
+  return Buffer.from(iv.toString("hex") + ":" + authTag + ":" + encrypted).toString("base64");
 };
 
 /**
- * Helper function for string decryption.
+ * Helper function for string decryption (AES-256-GCM with CBC fallback).
  *
  * @param {string} value - Encrypted value.
  * @returns {string} Plain text value.
  */
 const decrypt = (value) => {
-  const p = Buffer.from(value, "base64").toString("utf8").split(":");
-  const iv = Buffer.from(p.shift(), "hex");
+  const parts = Buffer.from(value, "base64").toString("utf8").split(":");
   const key = crypto.scryptSync(hardware.getMachineId(), APP.name, 32);
+
+  if (parts.length >= 3) {
+    // GCM format: iv:authTag:encrypted
+    const iv = Buffer.from(parts[0], "hex");
+    const authTag = Buffer.from(parts[1], "hex");
+    const encrypted = parts.slice(2).join(":");
+    const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+    decipher.setAuthTag(authTag);
+    const buffer = Buffer.from(encrypted, "hex");
+    let decrypted = decipher.update(buffer, "binary", "utf8");
+    decrypted += decipher.final("utf8");
+    return decrypted;
+  }
+
+  // Legacy CBC format: iv:encrypted
+  const iv = Buffer.from(parts[0], "hex");
   const decipher = crypto.createDecipheriv("aes-256-cbc", key, iv);
-  const buffer = Buffer.from(p.join(":"), "hex");
+  const buffer = Buffer.from(parts.slice(1).join(":"), "hex");
   let decrypted = decipher.update(buffer, "binary", "utf8");
   decrypted += decipher.final("utf8");
   return decrypted;

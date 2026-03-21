@@ -15,8 +15,8 @@ const init = async () => {
   if (!ARGS.mqtt_url) {
     return false;
   }
-  if (!/^mqtts?:\/\//.test(ARGS.mqtt_url)) {
-    console.error("Please provide the '--mqtt-url' parameter with mqtt(s)");
+  if (!/^(mqtts?|wss?):\/\//.test(ARGS.mqtt_url)) {
+    console.error("Please provide the '--mqtt-url' parameter with mqtt(s) or ws(s)");
     return app.quit();
   }
 
@@ -60,6 +60,15 @@ const init = async () => {
   console.info("MQTT Connecting:", connection);
   INTEGRATION.client = mqtt.connect(url.toString(), options);
   INTEGRATION.client.setMaxListeners(20);
+
+  // Init central message router
+  INTEGRATION.handlers = {};
+  INTEGRATION.client.on("message", (topic, message) => {
+    const handler = INTEGRATION.handlers[topic];
+    if (handler) {
+      handler(message);
+    }
+  });
 
   // Client connected
   INTEGRATION.client
@@ -134,7 +143,8 @@ const init = async () => {
       console.error("MQTT Error:", error.message);
     });
 
-  // Update time sensors periodically (30s)
+  // Update time sensors periodically (configurable, default 30s)
+  const heartbeatInterval = (parseInt(ARGS.app_heartbeat_interval) || 30) * 1000;
   setInterval(() => {
     if (APP.exiting) {
       return;
@@ -142,23 +152,25 @@ const init = async () => {
     updateLastActive();
     updateHeartbeat();
     updateErrors();
-  }, 30 * 1000);
+  }, heartbeatInterval);
 
-  // Update system sensors periodically (1min)
+  // Update system sensors periodically (configurable, default 1min)
+  const sensorInterval = (parseInt(ARGS.app_sensor_interval) || 60) * 1000;
   setInterval(() => {
     if (APP.exiting) {
       return;
     }
     update();
-  }, 60 * 1000);
+  }, sensorInterval);
 
-  // Update upgrade sensors periodically (1h)
+  // Update upgrade sensors periodically (configurable, default 1h)
+  const upgradeInterval = (parseInt(ARGS.app_upgrade_interval) || 3600) * 1000;
   setInterval(() => {
     if (APP.exiting) {
       return;
     }
     updatePackageUpgrades();
-  }, 3600 * 1000);
+  }, upgradeInterval);
 
   return true;
 };
@@ -196,6 +208,19 @@ const removeConfig = (type, config) => {
   const root = `${INTEGRATION.discovery}/${type}/${INTEGRATION.node}/${path}/config`;
   console.debug(`integration.js: removeConfig(${path})`);
   return INTEGRATION.client.publish(root, JSON.stringify({}), { qos: 1, retain: true });
+};
+
+/**
+ * Registers a handler for a specific MQTT topic via the central message router.
+ *
+ * @param {string} topic - The MQTT topic to subscribe to.
+ * @param {Function} handler - The handler function that receives the message buffer.
+ */
+const registerHandler = (topic, handler) => {
+  if (topic) {
+    INTEGRATION.handlers[topic] = handler;
+    INTEGRATION.client.subscribe(topic);
+  }
 };
 
 /**
@@ -262,22 +287,23 @@ const initApp = () => {
     removeConfig("update", config);
     return;
   }
-  publishConfig("update", config)
-    .on("message", (topic, message) => {
-      if (topic === config.command_topic) {
-        console.info("Update App...");
-        hardware.setDisplayStatus("ON", () => {
-          const args = ["-c", `bash <(wget -qO- ${APP.scripts.install}) ${message.toString()}`];
-          hardware.execScriptCommand("bash", args, (progress, error) => {
-            if (progress) {
-              console.info(`Progress: ${progress}%`);
-            }
-            updateApp(progress);
-          });
-        });
-      }
-    })
-    .subscribe(config.command_topic);
+  publishConfig("update", config);
+  registerHandler(config.command_topic, (message) => {
+    const payload = message.toString();
+    if (!["update", "update early"].includes(payload)) {
+      return;
+    }
+    console.info("Update App...");
+    hardware.setDisplayStatus("ON", () => {
+      const args = ["-c", `bash <(wget -qO- ${APP.scripts.install}) ${payload}`];
+      hardware.execScriptCommand("bash", args, (progress, error) => {
+        if (progress) {
+          console.info(`Progress: ${progress}%`);
+        }
+        updateApp(progress);
+      });
+    });
+  });
   updateApp();
 };
 
@@ -318,16 +344,13 @@ const initShutdown = () => {
     removeConfig("button", config);
     return;
   }
-  publishConfig("button", config)
-    .on("message", (topic, message) => {
-      if (topic === config.command_topic) {
-        console.verbose("Shutdown system...");
-        hardware.setDisplayStatus("ON", () => {
-          hardware.shutdownSystem();
-        });
-      }
-    })
-    .subscribe(config.command_topic);
+  publishConfig("button", config);
+  registerHandler(config.command_topic, (message) => {
+    console.verbose("Shutdown system...");
+    hardware.setDisplayStatus("ON", () => {
+      hardware.shutdownSystem();
+    });
+  });
 };
 
 /**
@@ -346,16 +369,13 @@ const initReboot = () => {
     removeConfig("button", config);
     return;
   }
-  publishConfig("button", config)
-    .on("message", (topic, message) => {
-      if (topic === config.command_topic) {
-        console.verbose("Rebooting system...");
-        hardware.setDisplayStatus("ON", () => {
-          hardware.rebootSystem();
-        });
-      }
-    })
-    .subscribe(config.command_topic);
+  publishConfig("button", config);
+  registerHandler(config.command_topic, (message) => {
+    console.verbose("Rebooting system...");
+    hardware.setDisplayStatus("ON", () => {
+      hardware.rebootSystem();
+    });
+  });
 };
 
 /**
@@ -370,16 +390,13 @@ const initRefresh = () => {
     icon: "mdi:web-refresh",
     device: INTEGRATION.device,
   };
-  publishConfig("button", config)
-    .on("message", (topic, message) => {
-      if (topic === config.command_topic) {
-        console.verbose("Refreshing webview...");
-        hardware.setDisplayStatus("ON", () => {
-          EVENTS.emit("reloadView");
-        });
-      }
-    })
-    .subscribe(config.command_topic);
+  publishConfig("button", config);
+  registerHandler(config.command_topic, (message) => {
+    console.verbose("Refreshing webview...");
+    hardware.setDisplayStatus("ON", () => {
+      EVENTS.emit("reloadView");
+    });
+  });
 };
 
 /**
@@ -397,17 +414,17 @@ const initKiosk = () => {
     icon: "mdi:overscan",
     device: INTEGRATION.device,
   };
-  publishConfig("select", config)
-    .on("message", (topic, message) => {
-      if (topic === config.command_topic) {
-        const status = message.toString();
-        console.verbose("Set Kiosk Status:", status);
-        hardware.setDisplayStatus("ON", () => {
-          WEBVIEW.window.setStatus(status);
-        });
-      }
-    })
-    .subscribe(config.command_topic);
+  publishConfig("select", config);
+  registerHandler(config.command_topic, (message) => {
+    const status = message.toString();
+    if (!["Framed", "Fullscreen", "Maximized", "Minimized", "Terminated"].includes(status)) {
+      return;
+    }
+    console.verbose("Set Kiosk Status:", status);
+    hardware.setDisplayStatus("ON", () => {
+      WEBVIEW.window.setStatus(status);
+    });
+  });
   updateKiosk();
 };
 
@@ -434,15 +451,15 @@ const initTheme = () => {
     icon: "mdi:compare",
     device: INTEGRATION.device,
   };
-  publishConfig("select", config)
-    .on("message", (topic, message) => {
-      if (topic === config.command_topic) {
-        const theme = message.toString().toLowerCase();
-        console.verbose("Set Application Theme:", theme);
-        WEBVIEW.theme.set(theme);
-      }
-    })
-    .subscribe(config.command_topic);
+  publishConfig("select", config);
+  registerHandler(config.command_topic, (message) => {
+    const theme = message.toString().toLowerCase();
+    if (!["light", "dark"].includes(theme)) {
+      return;
+    }
+    console.verbose("Set Application Theme:", theme);
+    WEBVIEW.theme.set(theme);
+  });
   updateTheme();
 };
 
@@ -479,32 +496,37 @@ const initDisplay = () => {
     removeConfig("light", config);
     return;
   }
-  publishConfig("light", config)
-    .on("message", (topic, message) => {
-      if (topic === config.command_topic) {
-        const status = message.toString();
-        console.verbose("Set Display Status:", status);
-        hardware.setDisplayStatus(status, (reply, error) => {
-          if (!error) {
-            hardware.update();
-          } else {
-            console.warn("Command Failed:", error);
-          }
-        });
-      } else if (topic === config.brightness_command_topic) {
-        const brightness = parseInt(message, 10);
-        console.verbose("Set Display Brightness:", brightness);
-        hardware.setDisplayBrightness(brightness, (reply, error) => {
-          if (!error) {
-            hardware.update();
-          } else {
-            console.warn("Command Failed:", error);
-          }
-        });
+  publishConfig("light", config);
+  registerHandler(config.command_topic, (message) => {
+    const status = message.toString();
+    if (!["ON", "OFF"].includes(status)) {
+      return;
+    }
+    console.verbose("Set Display Status:", status);
+    hardware.setDisplayStatus(status, (reply, error) => {
+      if (!error) {
+        hardware.update();
+      } else {
+        console.warn("Command Failed:", error);
       }
-    })
-    .subscribe(config.command_topic)
-    .subscribe(config.brightness_command_topic);
+    });
+  });
+  if (HARDWARE.support.displayBrightness) {
+    registerHandler(config.brightness_command_topic, (message) => {
+      const brightness = parseInt(message, 10);
+      if (isNaN(brightness) || brightness < 1 || brightness > 100) {
+        return;
+      }
+      console.verbose("Set Display Brightness:", brightness);
+      hardware.setDisplayBrightness(brightness, (reply, error) => {
+        if (!error) {
+          hardware.update();
+        } else {
+          console.warn("Command Failed:", error);
+        }
+      });
+    });
+  }
   updateDisplay();
 };
 
@@ -540,15 +562,15 @@ const initVolume = () => {
     removeConfig("number", config);
     return;
   }
-  publishConfig("number", config)
-    .on("message", (topic, message) => {
-      if (topic === config.command_topic) {
-        const volume = parseInt(message, 10);
-        console.verbose("Set Audio Volume:", volume);
-        hardware.setAudioVolume(volume);
-      }
-    })
-    .subscribe(config.command_topic);
+  publishConfig("number", config);
+  registerHandler(config.command_topic, (message) => {
+    const volume = parseInt(message, 10);
+    if (isNaN(volume) || volume < 0 || volume > 100) {
+      return;
+    }
+    console.verbose("Set Audio Volume:", volume);
+    hardware.setAudioVolume(volume);
+  });
   updateVolume();
 };
 
@@ -577,17 +599,17 @@ const initKeyboard = () => {
     removeConfig("switch", config);
     return;
   }
-  publishConfig("switch", config)
-    .on("message", (topic, message) => {
-      if (topic === config.command_topic) {
-        const status = message.toString();
-        console.verbose("Set Keyboard Visibility:", status);
-        hardware.setDisplayStatus("ON", () => {
-          hardware.setKeyboardVisibility(status);
-        });
-      }
-    })
-    .subscribe(config.command_topic);
+  publishConfig("switch", config);
+  registerHandler(config.command_topic, (message) => {
+    const status = message.toString();
+    if (!["ON", "OFF"].includes(status)) {
+      return;
+    }
+    console.verbose("Set Keyboard Visibility:", status);
+    hardware.setDisplayStatus("ON", () => {
+      hardware.setKeyboardVisibility(status);
+    });
+  });
   updateKeyboard();
 };
 
@@ -621,18 +643,15 @@ const initPageNumber = () => {
     removeConfig("number", config);
     return;
   }
-  publishConfig("number", config)
-    .on("message", (topic, message) => {
-      if (topic === config.command_topic) {
-        const number = parseInt(message, 10);
-        if (WEBVIEW.viewActive && number) {
-          console.verbose("Set Page Number:", number);
-          WEBVIEW.viewActive = number;
-          EVENTS.emit("updateView");
-        }
-      }
-    })
-    .subscribe(config.command_topic);
+  publishConfig("number", config);
+  registerHandler(config.command_topic, (message) => {
+    const number = parseInt(message, 10);
+    if (WEBVIEW.viewActive && number && number >= 1 && number <= WEBVIEW.viewUrls.length - 1) {
+      console.verbose("Set Page Number:", number);
+      WEBVIEW.viewActive = number;
+      EVENTS.emit("updateView");
+    }
+  });
   updatePageNumber();
 };
 
@@ -663,18 +682,15 @@ const initPageZoom = () => {
     icon: "mdi:magnify-plus",
     device: INTEGRATION.device,
   };
-  publishConfig("number", config)
-    .on("message", (topic, message) => {
-      if (topic === config.command_topic) {
-        const zoom = parseInt(message, 10);
-        if (WEBVIEW.viewActive && zoom) {
-          console.verbose("Set Page Zoom:", zoom);
-          WEBVIEW.zoom.set(zoom);
-          EVENTS.emit("updateView");
-        }
-      }
-    })
-    .subscribe(config.command_topic);
+  publishConfig("number", config);
+  registerHandler(config.command_topic, (message) => {
+    const zoom = parseInt(message, 10);
+    if (WEBVIEW.viewActive && zoom && zoom >= 25 && zoom <= 400) {
+      console.verbose("Set Page Zoom:", zoom);
+      WEBVIEW.zoom.set(zoom);
+      EVENTS.emit("updateView");
+    }
+  });
   updatePageZoom();
 };
 
@@ -701,17 +717,14 @@ const initPageUrl = () => {
     icon: "mdi:web",
     device: INTEGRATION.device,
   };
-  publishConfig("text", config)
-    .on("message", (topic, message) => {
-      if (topic === config.command_topic) {
-        const url = message.toString();
-        if (WEBVIEW.viewActive && url) {
-          console.verbose("Set Page Url:", url);
-          WEBVIEW.views[WEBVIEW.viewActive].webContents.loadURL(url);
-        }
-      }
-    })
-    .subscribe(config.command_topic);
+  publishConfig("text", config);
+  registerHandler(config.command_topic, (message) => {
+    const url = message.toString();
+    if (WEBVIEW.viewActive && url && /^https?:\/\//.test(url)) {
+      console.verbose("Set Page Url:", url);
+      WEBVIEW.views[WEBVIEW.viewActive].webContents.loadURL(url);
+    }
+  });
   updatePageUrl();
 };
 
