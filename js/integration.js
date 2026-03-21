@@ -1032,7 +1032,7 @@ const initPackageUpgrades = () => {
  * Updates the package upgrades sensor via the mqtt connection.
  */
 const updatePackageUpgrades = async () => {
-  const packages = hardware.checkPackageUpgrades();
+  const packages = await hardware.checkPackageUpgrades();
   const upgrades = {
     packages: packages.map((pkg) => {
       const [name, version] = pkg.replace(/\s*\[.*?\]\s*/g, "").split(/\s+/, 2);

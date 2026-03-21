@@ -820,7 +820,7 @@ const windowEvents = async () => {
     historyForward();
   });
 
-  // Check for window touch events (every full 1s)
+  // Check for window touch events (every 5s)
   interval(() => {
     if (APP.exiting) {
       return;
@@ -848,7 +848,7 @@ const windowEvents = async () => {
         WEBVIEW.tracker.screensaver = false;
       }
     }
-  }, 1 * 1000);
+  }, 5 * 1000);
 };
 
 /**
@@ -1150,25 +1150,27 @@ const viewEvents = async () => {
       }
     });
 
-    // Handle webview mouse events
+    // Handle webview mouse events (mouseMove throttled to 100ms)
+    let lastMoveTime = 0;
     view.webContents.on("before-mouse-event", (e, mouse) => {
-      const now = new Date();
-      const then = WEBVIEW.tracker.pointer.time;
-      const delta = (now - then) / 1000;
-
       // Check mouse event type
       switch (mouse.type) {
         case "mouseMove":
+          const moveNow = Date.now();
+          if (moveNow - lastMoveTime < 100) return;
+          lastMoveTime = moveNow;
+
           const posNew = { x: Math.round(mouse.globalX), y: Math.round(mouse.globalY) };
           if (posNew.x < 0 || posNew.y < 0) {
             break;
           }
-          console.debug(`webview.js: viewEvents(${i},${mouse.type}-${posNew.x}-${posNew.y})`);
 
           // Update tracker pointer time and position
           const posOld = WEBVIEW.tracker.pointer.position;
           if (posOld.x !== posNew.x || posOld.y !== posNew.y) {
-            WEBVIEW.tracker.pointer.time = now;
+            const then = WEBVIEW.tracker.pointer.time;
+            const delta = (moveNow - then.getTime()) / 1000;
+            WEBVIEW.tracker.pointer.time = new Date(moveNow);
             WEBVIEW.tracker.pointer.position = posNew;
 
             // Update last active on pointer position change

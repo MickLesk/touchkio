@@ -316,9 +316,9 @@ const checkSupport = () => {
  */
 const getModel = () => {
   const paths = ["/sys/firmware/devicetree/base/model", "/sys/class/dmi/id/product_name"];
-  for (const path of paths) {
-    if (fs.existsSync(path)) {
-      return execSyncCommand("cat", [path]) || "Generic";
+  for (const p of paths) {
+    if (fs.existsSync(p)) {
+      return readFile(p) || "Generic";
     }
   }
   return "Generic";
@@ -331,9 +331,9 @@ const getModel = () => {
  */
 const getVendor = () => {
   const paths = ["/sys/class/dmi/id/board_vendor"];
-  for (const path of paths) {
-    if (fs.existsSync(path)) {
-      return execSyncCommand("cat", [path]) || "Generic";
+  for (const p of paths) {
+    if (fs.existsSync(p)) {
+      return readFile(p) || "Generic";
     }
   }
   const model = getModel();
@@ -350,9 +350,9 @@ const getVendor = () => {
  */
 const getSerialNumber = () => {
   const paths = ["/sys/firmware/devicetree/base/serial-number"];
-  for (const path of paths) {
-    if (fs.existsSync(path)) {
-      return execSyncCommand("cat", [path]) || "123456";
+  for (const p of paths) {
+    if (fs.existsSync(p)) {
+      return readFile(p) || "123456";
     }
   }
   return getMachineId().slice(-6);
@@ -365,9 +365,9 @@ const getSerialNumber = () => {
  */
 const getMachineId = () => {
   const paths = ["/etc/machine-id"];
-  for (const path of paths) {
-    if (fs.existsSync(path)) {
-      return execSyncCommand("cat", [path]) || "123456";
+  for (const p of paths) {
+    if (fs.existsSync(p)) {
+      return readFile(p) || "123456";
     }
   }
   return "123456";
@@ -446,27 +446,36 @@ const getProcessorUsage = () => {
 
 /**
  * Gets the current CPU temperature using `/sys/class/thermal`.
+ * Caches the thermal zone path after first discovery to avoid repeated directory scans.
  *
  * @returns {number|null} The CPU temperature in degrees celsius or null if nothing was found.
  */
-const getProcessorTemperature = () => {
-  const thermal = "/sys/class/thermal";
-  for (const zone of fs.readdirSync(thermal)) {
-    const typeFile = path.join(thermal, zone, "type");
-    const tempFile = path.join(thermal, zone, "temp");
-    if (!fs.existsSync(typeFile) || !fs.existsSync(tempFile)) {
-      continue;
+const getProcessorTemperature = (() => {
+  let cachedTempFile = undefined;
+  return () => {
+    if (cachedTempFile === null) return null;
+    if (cachedTempFile) {
+      const temp = readFile(cachedTempFile);
+      return temp ? parseFloat(temp) / 1000 : null;
     }
-    const type = readFile(typeFile);
-    if (["cpu-thermal", "x86_pkg_temp", "k10temp", "acpitz", "cpu"].includes(type)) {
-      const temp = readFile(tempFile);
-      if (temp) {
-        return parseFloat(temp) / 1000;
+    const thermal = "/sys/class/thermal";
+    for (const zone of fs.readdirSync(thermal)) {
+      const typeFile = path.join(thermal, zone, "type");
+      const tempFile = path.join(thermal, zone, "temp");
+      if (!fs.existsSync(typeFile) || !fs.existsSync(tempFile)) {
+        continue;
+      }
+      const type = readFile(typeFile);
+      if (["cpu-thermal", "x86_pkg_temp", "k10temp", "acpitz", "cpu"].includes(type)) {
+        cachedTempFile = tempFile;
+        const temp = readFile(tempFile);
+        return temp ? parseFloat(temp) / 1000 : null;
       }
     }
-  }
-  return null;
-};
+    cachedTempFile = null;
+    return null;
+  };
+})();
 
 /**
  * Gets the current battery power level path using `/sys/class/power_supply`.
@@ -647,7 +656,7 @@ const getDisplayBrightnessCommand = () => {
         case "ddcutil":
           const output = execSyncCommand("sudo", ["ddcutil", "capabilities"]);
           if (output && output.includes("Feature: 10")) {
-            fs.writeFileSync(path.join(APP.cache, "Brightness.vcp"), "");
+            fsp.writeFile(path.join(APP.cache, "Brightness.vcp"), "").catch(() => {});
             return map.command;
           }
           break;
@@ -705,7 +714,7 @@ const getDisplayBrightness = () => {
       if (match) {
         const value = parseInt(match[1], 10);
         HARDWARE.display.brightness.value.brightness = `${value}`;
-        fs.writeFileSync(path.join(APP.cache, "Brightness.vcp"), `${value}`);
+        fsp.writeFile(path.join(APP.cache, "Brightness.vcp"), `${value}`).catch(() => {});
         return value;
       }
       return null;
@@ -743,7 +752,7 @@ const setDisplayBrightness = (brightness, callback = null) => {
     case "ddcutil":
       execAsyncCommand("sudo", ["ddcutil", "setvcp", "10", `${brightness}`], (reply, error) => {
         if (!error) {
-          fs.writeFileSync(path.join(APP.cache, "Brightness.vcp"), `${brightness}`);
+          fsp.writeFile(path.join(APP.cache, "Brightness.vcp"), `${brightness}`).catch(() => {});
         }
         if (typeof callback === "function") callback(reply, error);
       });
@@ -856,16 +865,23 @@ const setKeyboardVisibility = (visibility, callback = null) => {
 /**
  * Checks if system upgrades are available using `apt`.
  *
- * @returns {Array<string>} A list of package names that are available for upgrade.
+ * @returns {Promise<Array<string>>} A list of package names that are available for upgrade.
  */
 const checkPackageUpgrades = () => {
   if (!commandExists("apt")) {
-    return [];
+    return Promise.resolve([]);
   }
-  const output = execSyncCommand("apt", ["list", "--upgradable"]);
-  const packages = (output || "").trim().split("\n");
-  packages.shift();
-  return packages;
+  return new Promise((resolve) => {
+    execAsyncCommand("apt", ["list", "--upgradable"], (reply, error) => {
+      if (error || !reply) {
+        resolve([]);
+        return;
+      }
+      const packages = reply.trim().split("\n");
+      packages.shift();
+      resolve(packages);
+    });
+  });
 };
 
 /**
@@ -901,17 +917,23 @@ const rebootSystem = (callback = null) => {
 };
 
 /**
- * Checks if sudo commands can run without a password.
+ * Checks if sudo commands can run without a password (cached).
  *
  * @returns {bool} Returns true if password-less sudo rights exists.
  */
-const sudoRights = () => {
-  try {
-    cpr.execFileSync("sudo", ["-n", "true"], { encoding: "utf8", stdio: "ignore" });
-    return true;
-  } catch {}
-  return false;
-};
+const sudoRights = (() => {
+  let cached = undefined;
+  return () => {
+    if (cached !== undefined) return cached;
+    try {
+      cpr.execFileSync("sudo", ["-n", "true"], { encoding: "utf8", stdio: "ignore" });
+      cached = true;
+    } catch {
+      cached = false;
+    }
+    return cached;
+  };
+})();
 
 /**
  * Checks if a service is running using `systemctl`.
@@ -942,18 +964,24 @@ const processRuns = (name) => {
 };
 
 /**
- * Checks if a command is available using `which`.
+ * Checks if a command is available using `which` (cached).
  *
  * @param {string} name - The command name to check.
  * @returns {bool} Returns true if the command is available.
  */
-const commandExists = (name) => {
-  try {
-    cpr.execFileSync("which", [name], { encoding: "utf8", stdio: "ignore" });
-    return true;
-  } catch {}
-  return false;
-};
+const commandExists = (() => {
+  const cache = {};
+  return (name) => {
+    if (name in cache) return cache[name];
+    try {
+      cpr.execFileSync("which", [name], { encoding: "utf8", stdio: "ignore" });
+      cache[name] = true;
+    } catch {
+      cache[name] = false;
+    }
+    return cache[name];
+  };
+})();
 
 /**
  * Executes a command synchronously and returns the output.
