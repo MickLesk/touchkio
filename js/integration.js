@@ -1,5 +1,6 @@
 const mqtt = require("mqtt");
 const hardware = require("./hardware");
+const admin = require("./admin");
 const { app } = require("electron");
 
 global.INTEGRATION = global.INTEGRATION || {
@@ -45,7 +46,7 @@ const init = async () => {
     serial_number: serialNumber,
     identifiers: [INTEGRATION.node],
     sw_version: `${APP.name}-v${APP.version}`,
-    configuration_url: APP.homepage,
+    configuration_url: admin.getUrl() || APP.homepage,
   };
 
   // Init options
@@ -109,6 +110,9 @@ const init = async () => {
 
       // Integration initialized
       INTEGRATION.initialized = true;
+
+      // Clean up stale entities from previous buggy node ID (null byte issue)
+      cleanupStaleEntities(serialNumber, discovery);
 
       // Register global events
       EVENTS.on("updateApp", updateApp);
@@ -208,6 +212,49 @@ const removeConfig = (type, config) => {
   const root = `${INTEGRATION.discovery}/${type}/${INTEGRATION.node}/${path}/config`;
   console.debug(`integration.js: removeConfig(${path})`);
   return INTEGRATION.client.publish(root, "", { qos: 1, retain: true });
+};
+
+/**
+ * Cleans up stale MQTT discovery entities from a previous buggy node ID.
+ * This fixes the issue where readFile didn't strip null bytes from serial-number,
+ * causing a different (shorter) node ID suffix and creating duplicate HA entities.
+ *
+ * @param {string} serialNumber - The correctly parsed serial number.
+ * @param {string} discovery - The MQTT discovery prefix.
+ */
+const cleanupStaleEntities = (serialNumber, discovery) => {
+  // Simulate the old buggy behavior: serial with trailing null byte
+  const buggySerial = serialNumber + "\0";
+  const buggySuffix = buggySerial.slice(-6);
+  const buggyId = buggySuffix.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const buggyNode = `rpi_${buggyId}`;
+
+  // Only clean up if the buggy node ID differs from the correct one
+  if (buggyNode === INTEGRATION.node) {
+    return;
+  }
+
+  console.info(`Cleaning up stale MQTT entities from buggy node: ${buggyNode}`);
+
+  const entityTypes = [
+    ["update", "app"], ["button", "shutdown"], ["button", "reboot"], ["button", "refresh"],
+    ["select", "kiosk"], ["select", "theme"], ["light", "display"], ["number", "volume"],
+    ["switch", "keyboard"], ["number", "page_number"], ["number", "page_zoom"], ["text", "page_url"],
+    ["sensor", "model"], ["sensor", "serial_number"], ["sensor", "network_address"],
+    ["sensor", "host_name"], ["sensor", "up_time"], ["sensor", "memory_size"],
+    ["sensor", "memory_usage"], ["sensor", "processor_usage"], ["sensor", "processor_temperature"],
+    ["sensor", "battery_level"], ["sensor", "package_upgrades"], ["sensor", "last_active"],
+    ["image", "screenshot"], ["sensor", "heartbeat"], ["sensor", "errors"], ["sensor", "version"],
+  ];
+
+  for (const [type, path] of entityTypes) {
+    const topic = `${discovery}/${type}/${buggyNode}/${path}/config`;
+    INTEGRATION.client.publish(topic, "", { qos: 1, retain: true });
+  }
+
+  // Also clear the stale state topics
+  const stateRoot = `${APP.name}/${buggyNode}`;
+  INTEGRATION.client.publish(`${stateRoot}/kiosk/state`, "", { qos: 1, retain: true });
 };
 
 /**

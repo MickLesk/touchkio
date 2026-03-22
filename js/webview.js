@@ -142,6 +142,7 @@ const init = async () => {
     icon: APP.icon,
     autoHideMenuBar: true,
     frame: !WEBVIEW.statusEnabled,
+    backgroundColor: "#000000",
     width: Math.floor(WEBVIEW.display.width * 0.85),
     height: Math.floor(WEBVIEW.display.height * 0.75),
     minWidth: 136,
@@ -157,7 +158,7 @@ const init = async () => {
       },
     });
     view.setVisible(i === 0);
-    view.setBackgroundColor("#FFFFFFFF");
+    view.setBackgroundColor("#000000FF");
     WEBVIEW.window.contentView.addChildView(view);
     WEBVIEW.views.push(view);
     onlineStatus(url).then(() => {
@@ -652,7 +653,7 @@ const reloadView = () => {
  * Resizes and positions all webviews.
  */
 const resizeView = () => {
-  const window = WEBVIEW.window.getBounds();
+  const window = WEBVIEW.window.getContentBounds();
   const status = WEBVIEW.status.getBounds();
   const navigation = WEBVIEW.navigation.getBounds();
   const pager = { width: 20, height: window.height };

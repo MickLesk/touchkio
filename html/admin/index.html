@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TouchKio Admin</title>
+  <style>
+    :root {
+      --bg: #1a1a2e;
+      --surface: #16213e;
+      --surface2: #0f3460;
+      --accent: #e94560;
+      --accent-hover: #ff6b81;
+      --text: #eee;
+      --text-dim: #999;
+      --border: #2a2a4a;
+      --success: #2ecc71;
+      --warning: #f39c12;
+      --error: #e74c3c;
+      --input-bg: #0d1b2a;
+      --radius: 8px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    header h1 {
+      font-size: 20px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    header .version {
+      font-size: 12px;
+      color: var(--text-dim);
+      background: var(--surface2);
+      padding: 2px 8px;
+      border-radius: 12px;
+    }
+    .header-actions {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .status-dot.online { background: var(--success); }
+    .status-dot.offline { background: var(--error); }
+
+    nav {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      gap: 0;
+      padding: 0 24px;
+    }
+    nav button {
+      background: none;
+      border: none;
+      color: var(--text-dim);
+      padding: 12px 20px;
+      cursor: pointer;
+      font-size: 14px;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+    }
+    nav button:hover { color: var(--text); }
+    nav button.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    main {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* Config Form */
+    .section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 20px;
+      overflow: hidden;
+    }
+    .section-header {
+      padding: 14px 20px;
+      font-size: 14px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-dim);
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+    }
+    .section-body {
+      padding: 16px 20px;
+    }
+    .form-row {
+      display: grid;
+      grid-template-columns: 200px 1fr;
+      gap: 12px;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .form-row:last-child { border-bottom: none; }
+    .form-row label {
+      font-size: 13px;
+      color: var(--text-dim);
+      font-family: monospace;
+    }
+    .form-row input,
+    .form-row select {
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 8px 12px;
+      color: var(--text);
+      font-size: 14px;
+      width: 100%;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .form-row input:focus,
+    .form-row select:focus {
+      border-color: var(--accent);
+    }
+    .form-row .hint {
+      grid-column: 2;
+      font-size: 11px;
+      color: var(--text-dim);
+      margin-top: -4px;
+    }
+    .form-row.checkbox {
+      grid-template-columns: 200px auto 1fr;
+    }
+    .form-row.checkbox input[type="checkbox"] {
+      width: auto;
+      accent-color: var(--accent);
+    }
+
+    .btn {
+      padding: 10px 24px;
+      border: none;
+      border-radius: var(--radius);
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+    }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-secondary {
+      background: var(--surface2);
+      color: var(--text);
+    }
+    .btn-secondary:hover { background: var(--border); }
+    .btn-danger {
+      background: var(--error);
+      color: white;
+    }
+    .btn-danger:hover { background: #c0392b; }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 20px;
+      justify-content: flex-end;
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      padding: 12px 20px;
+      border-radius: var(--radius);
+      color: white;
+      font-size: 14px;
+      z-index: 1000;
+      transform: translateY(100px);
+      opacity: 0;
+      transition: all 0.3s ease;
+    }
+    .toast.show { transform: translateY(0); opacity: 1; }
+    .toast.success { background: var(--success); }
+    .toast.error { background: var(--error); }
+    .toast.warning { background: var(--warning); }
+
+    /* Preview Tab */
+    .preview-container {
+      text-align: center;
+    }
+    .preview-controls {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 16px;
+    }
+    .preview-controls label {
+      font-size: 13px;
+      color: var(--text-dim);
+    }
+    .preview-controls select {
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 10px;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    .preview-frame {
+      background: #000;
+      border: 2px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      display: inline-block;
+      max-width: 100%;
+      position: relative;
+    }
+    .preview-frame img {
+      display: block;
+      max-width: 100%;
+      height: auto;
+    }
+    .preview-frame .no-preview {
+      padding: 80px 40px;
+      color: var(--text-dim);
+      font-size: 16px;
+    }
+    .preview-meta {
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+
+    /* Status Tab */
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 16px;
+    }
+    .status-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+    }
+    .status-card h3 {
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--accent);
+      margin-bottom: 12px;
+    }
+    .status-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+    .status-item:last-child { border-bottom: none; }
+    .status-item .label { color: var(--text-dim); }
+    .status-item .value { color: var(--text); font-family: monospace; }
+
+    /* Logs Tab */
+    .log-container {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .log-entry {
+      display: grid;
+      grid-template-columns: 180px 60px 1fr;
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+      font-family: monospace;
+    }
+    .log-entry:last-child { border-bottom: none; }
+    .log-entry .time { color: var(--text-dim); }
+    .log-entry .level { font-weight: 600; }
+    .log-entry .level.error { color: var(--error); }
+    .log-entry .level.warn { color: var(--warning); }
+    .log-entry .level.info { color: var(--success); }
+    .log-entry .level.debug { color: var(--text-dim); }
+    .log-entry .message { color: var(--text); word-break: break-all; }
+    .log-empty {
+      padding: 40px;
+      text-align: center;
+      color: var(--text-dim);
+    }
+
+    @media (max-width: 768px) {
+      .form-row {
+        grid-template-columns: 1fr;
+        gap: 4px;
+      }
+      .form-row.checkbox {
+        grid-template-columns: 1fr auto;
+      }
+      .status-grid {
+        grid-template-columns: 1fr;
+      }
+      .log-entry {
+        grid-template-columns: 1fr;
+        gap: 2px;
+      }
+      nav { overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+      </svg>
+      TouchKio Admin
+      <span class="version" id="app-version"></span>
+    </h1>
+    <div class="header-actions">
+      <span class="status-dot" id="status-dot"></span>
+      <span id="status-text" style="font-size:13px;color:var(--text-dim)"></span>
+    </div>
+  </header>
+
+  <nav>
+    <button class="active" data-tab="config">Configuration</button>
+    <button data-tab="preview">Live Preview</button>
+    <button data-tab="status">System Status</button>
+    <button data-tab="logs">Logs</button>
+  </nav>
+
+  <main>
+    <!-- Configuration Tab -->
+    <div id="tab-config" class="tab-content active">
+      <form id="config-form" autocomplete="off">
+        <div class="section">
+          <div class="section-header">Web Settings</div>
+          <div class="section-body">
+            <div class="form-row">
+              <label>web_url</label>
+              <input type="text" name="web_url" placeholder="http://192.168.1.42:8123" required>
+              <span class="hint">Comma-separated URLs for multiple pages</span>
+            </div>
+            <div class="form-row">
+              <label>web_theme</label>
+              <select name="web_theme">
+                <option value="dark">dark</option>
+                <option value="light">light</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label>web_zoom</label>
+              <input type="number" name="web_zoom" step="0.05" min="0.5" max="3.0" placeholder="1.25">
+            </div>
+            <div class="form-row">
+              <label>web_widget</label>
+              <select name="web_widget">
+                <option value="true">true</option>
+                <option value="false">false</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label>web_screensaver</label>
+              <input type="number" name="web_screensaver" min="0" step="1" placeholder="0">
+              <span class="hint">Seconds of inactivity before display off (0 = disabled)</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-header">MQTT Settings</div>
+          <div class="section-body">
+            <div class="form-row">
+              <label>mqtt_url</label>
+              <input type="text" name="mqtt_url" placeholder="mqtt://192.168.1.42:1883">
+              <span class="hint">mqtt(s):// or ws(s):// protocol</span>
+            </div>
+            <div class="form-row">
+              <label>mqtt_user</label>
+              <input type="text" name="mqtt_user" placeholder="kiosk">
+            </div>
+            <div class="form-row">
+              <label>mqtt_password</label>
+              <input type="password" name="mqtt_password" placeholder="password">
+            </div>
+            <div class="form-row">
+              <label>mqtt_discovery</label>
+              <input type="text" name="mqtt_discovery" placeholder="homeassistant">
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-header">App Intervals (seconds)</div>
+          <div class="section-body">
+            <div class="form-row">
+              <label>app_heartbeat_interval</label>
+              <input type="number" name="app_heartbeat_interval" min="5" placeholder="30">
+              <span class="hint">Time-series sensor updates</span>
+            </div>
+            <div class="form-row">
+              <label>app_sensor_interval</label>
+              <input type="number" name="app_sensor_interval" min="10" placeholder="60">
+              <span class="hint">System sensor updates</span>
+            </div>
+            <div class="form-row">
+              <label>app_upgrade_interval</label>
+              <input type="number" name="app_upgrade_interval" min="60" placeholder="3600">
+              <span class="hint">Package upgrade check</span>
+            </div>
+            <div class="form-row">
+              <label>app_screenshot_interval</label>
+              <input type="number" name="app_screenshot_interval" min="10" placeholder="60">
+              <span class="hint">Screenshot capture</span>
+            </div>
+            <div class="form-row">
+              <label>app_release_interval</label>
+              <input type="number" name="app_release_interval" min="60" placeholder="7200">
+              <span class="hint">GitHub release check</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-header">Advanced</div>
+          <div class="section-body">
+            <div class="form-row">
+              <label>admin_port</label>
+              <input type="number" name="admin_port" min="1024" max="65535" placeholder="33333">
+              <span class="hint">Admin UI port (requires restart)</span>
+            </div>
+            <div class="form-row checkbox">
+              <label>app_debug</label>
+              <input type="checkbox" name="app_debug">
+            </div>
+            <div class="form-row checkbox">
+              <label>app_early</label>
+              <input type="checkbox" name="app_early">
+              <span class="hint">Include prerelease versions</span>
+            </div>
+            <div class="form-row checkbox">
+              <label>enable_logging</label>
+              <input type="checkbox" name="enable_logging">
+            </div>
+            <div class="form-row checkbox">
+              <label>ignore_certificate_errors</label>
+              <input type="checkbox" name="ignore_certificate_errors">
+            </div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button type="button" class="btn btn-secondary" onclick="loadConfig()">Reset</button>
+          <button type="submit" class="btn btn-primary">Save Configuration</button>
+          <button type="button" class="btn btn-danger" onclick="saveAndRestart()">Save &amp; Restart</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Preview Tab -->
+    <div id="tab-preview" class="tab-content">
+      <div class="preview-container">
+        <div class="preview-controls">
+          <label>Refresh:</label>
+          <select id="preview-interval">
+            <option value="0">Manual</option>
+            <option value="2000">2s</option>
+            <option value="5000" selected>5s</option>
+            <option value="10000">10s</option>
+            <option value="30000">30s</option>
+          </select>
+          <button class="btn btn-secondary" onclick="refreshPreview()">Refresh Now</button>
+        </div>
+        <div class="preview-frame">
+          <img id="preview-img" alt="Kiosk Preview" style="display:none">
+          <div id="preview-placeholder" class="no-preview">No screenshot available yet</div>
+        </div>
+        <div class="preview-meta" id="preview-meta"></div>
+      </div>
+    </div>
+
+    <!-- Status Tab -->
+    <div id="tab-status" class="tab-content">
+      <div class="status-grid" id="status-grid"></div>
+    </div>
+
+    <!-- Logs Tab -->
+    <div id="tab-logs" class="tab-content">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+        <button class="btn btn-secondary" onclick="refreshLogs()">Refresh Logs</button>
+      </div>
+      <div class="log-container" id="log-container">
+        <div class="log-empty">No log entries</div>
+      </div>
+    </div>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const API = window.location.origin;
+    let previewTimer = null;
+
+    // Tab switching
+    document.querySelectorAll("nav button").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("nav button").forEach(b => b.classList.remove("active"));
+        document.querySelectorAll(".tab-content").forEach(t => t.classList.remove("active"));
+        btn.classList.add("active");
+        document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+        if (btn.dataset.tab === "preview") startPreview();
+        else if (btn.dataset.tab === "status") refreshStatus();
+        else if (btn.dataset.tab === "logs") refreshLogs();
+        else stopPreview();
+      });
+    });
+
+    // Toast notification
+    function showToast(msg, type = "success") {
+      const t = document.getElementById("toast");
+      t.textContent = msg;
+      t.className = "toast " + type + " show";
+      setTimeout(() => t.classList.remove("show"), 3000);
+    }
+
+    // Load config into form
+    async function loadConfig() {
+      try {
+        const res = await fetch(API + "/api/config");
+        const config = await res.json();
+
+        document.getElementById("app-version").textContent = "v" + (config._version || "");
+        delete config._version;
+
+        const form = document.getElementById("config-form");
+        for (const [key, value] of Object.entries(config)) {
+          const input = form.elements[key];
+          if (!input) continue;
+          if (input.type === "checkbox") {
+            input.checked = value !== undefined && value !== false;
+          } else {
+            input.value = value || "";
+          }
+        }
+      } catch (e) {
+        showToast("Failed to load config", "error");
+      }
+    }
+
+    // Save config
+    async function saveConfig() {
+      const form = document.getElementById("config-form");
+      const data = {};
+      const fields = [
+        "web_url", "web_theme", "web_zoom", "web_widget", "web_screensaver",
+        "mqtt_url", "mqtt_user", "mqtt_password", "mqtt_discovery",
+        "app_heartbeat_interval", "app_sensor_interval", "app_upgrade_interval",
+        "app_screenshot_interval", "app_release_interval", "admin_port"
+      ];
+      const booleans = ["app_debug", "app_early", "enable_logging", "ignore_certificate_errors"];
+
+      for (const key of fields) {
+        const input = form.elements[key];
+        if (input && input.value) data[key] = input.value;
+      }
+      for (const key of booleans) {
+        const input = form.elements[key];
+        if (input && input.checked) data[key] = true;
+      }
+
+      try {
+        const res = await fetch(API + "/api/config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        });
+        const result = await res.json();
+        if (res.ok) {
+          showToast(result.message || "Saved!", "success");
+        } else {
+          showToast(result.error || "Save failed", "error");
+        }
+      } catch (e) {
+        showToast("Connection failed", "error");
+      }
+    }
+
+    // Save and restart
+    async function saveAndRestart() {
+      if (!confirm("Save config and restart TouchKio?")) return;
+      await saveConfig();
+      setTimeout(async () => {
+        try {
+          await fetch(API + "/api/restart", { method: "POST" });
+          showToast("Restarting...", "warning");
+          setTimeout(() => window.location.reload(), 5000);
+        } catch (e) {
+          showToast("Restart sent, reconnecting...", "warning");
+          setTimeout(() => window.location.reload(), 5000);
+        }
+      }, 500);
+    }
+
+    // Form submit
+    document.getElementById("config-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      saveConfig();
+    });
+
+    // Preview
+    function refreshPreview() {
+      const img = document.getElementById("preview-img");
+      const placeholder = document.getElementById("preview-placeholder");
+      const meta = document.getElementById("preview-meta");
+      const url = API + "/api/screenshot?t=" + Date.now();
+
+      fetch(url).then(res => {
+        if (res.status === 204) {
+          img.style.display = "none";
+          placeholder.style.display = "block";
+          meta.textContent = "No screenshot captured yet";
+          return;
+        }
+        img.src = url;
+        img.style.display = "block";
+        placeholder.style.display = "none";
+        meta.textContent = "Last refresh: " + new Date().toLocaleTimeString();
+      }).catch(() => {
+        meta.textContent = "Connection lost";
+      });
+    }
+
+    function startPreview() {
+      stopPreview();
+      refreshPreview();
+      const interval = parseInt(document.getElementById("preview-interval").value);
+      if (interval > 0) {
+        previewTimer = setInterval(refreshPreview, interval);
+      }
+    }
+
+    function stopPreview() {
+      if (previewTimer) {
+        clearInterval(previewTimer);
+        previewTimer = null;
+      }
+    }
+
+    document.getElementById("preview-interval").addEventListener("change", () => {
+      startPreview();
+    });
+
+    // Status
+    async function refreshStatus() {
+      try {
+        const res = await fetch(API + "/api/status");
+        const data = await res.json();
+        const grid = document.getElementById("status-grid");
+        grid.innerHTML = "";
+
+        // App info
+        const dot = document.getElementById("status-dot");
+        const text = document.getElementById("status-text");
+        dot.className = "status-dot " + (data.webview?.initialized ? "online" : "offline");
+        text.textContent = data.webview?.initialized ? "Running" : "Starting...";
+        document.getElementById("app-version").textContent = "v" + (data.app?.version || "");
+
+        const cards = [
+          {
+            title: "Application",
+            items: [
+              ["Version", data.app?.version || "-"],
+              ["Uptime", formatUptime(data.app?.uptime || 0)],
+              ["Window", data.webview?.window || "-"],
+              ["Theme", data.webview?.theme || "-"],
+              ["Zoom", data.webview?.zoom ? data.webview.zoom + "%" : "-"],
+              ["Display", data.webview?.display ? data.webview.display.width + "x" + data.webview.display.height : "-"],
+              ["Screensaver", data.webview?.screensaver ? "Active" : "Off"],
+            ]
+          },
+          {
+            title: "MQTT Integration",
+            items: [
+              ["Connected", data.integration?.connected ? "Yes" : "No"],
+              ["Node ID", data.integration?.node || "-"],
+              ["Initialized", data.integration?.initialized ? "Yes" : "No"],
+            ]
+          },
+          {
+            title: "Hardware",
+            items: [
+              ["Session", (data.hardware?.session?.type || "-") + " / " + (data.hardware?.session?.desktop || "-")],
+              ["Battery", data.hardware?.battery != null ? data.hardware.battery + "%" : "N/A"],
+              ["Brightness", data.hardware?.brightness != null ? data.hardware.brightness + "%" : "N/A"],
+              ["Volume", data.hardware?.volume != null ? data.hardware.volume + "%" : "N/A"],
+              ["Display", data.hardware?.display || "N/A"],
+            ]
+          },
+          {
+            title: "Hardware Support",
+            items: Object.entries(data.hardware?.support || {}).map(([k, v]) => [k, v ? "Yes" : "No"])
+          },
+          {
+            title: "Network",
+            items: Object.entries(data.network || {}).flatMap(([iface, families]) =>
+              Object.entries(families).flatMap(([family, addrs]) =>
+                addrs.map(addr => [iface + " (" + family + ")", addr])
+              )
+            )
+          },
+          {
+            title: "Active URLs",
+            items: (data.webview?.urls || []).map((url, i) => [
+              i === data.webview?.activeView - 1 ? "Active" : "Page " + (i + 1),
+              url.length > 50 ? url.substring(0, 50) + "..." : url
+            ])
+          }
+        ];
+
+        for (const card of cards) {
+          if (card.items.length === 0) continue;
+          const div = document.createElement("div");
+          div.className = "status-card";
+          div.innerHTML = "<h3>" + card.title + "</h3>" +
+            card.items.map(([l, v]) =>
+              '<div class="status-item"><span class="label">' + escapeHtml(l) +
+              '</span><span class="value">' + escapeHtml(String(v)) + '</span></div>'
+            ).join("");
+          grid.appendChild(div);
+        }
+      } catch (e) {
+        showToast("Failed to load status", "error");
+      }
+    }
+
+    // Logs
+    async function refreshLogs() {
+      try {
+        const res = await fetch(API + "/api/logs");
+        const logs = await res.json();
+        const container = document.getElementById("log-container");
+        if (!logs.length) {
+          container.innerHTML = '<div class="log-empty">No log entries</div>';
+          return;
+        }
+        container.innerHTML = logs.map(entry =>
+          '<div class="log-entry">' +
+          '<span class="time">' + new Date(entry.time).toLocaleString() + '</span>' +
+          '<span class="level ' + entry.level + '">' + entry.level + '</span>' +
+          '<span class="message">' + escapeHtml(entry.text) + '</span>' +
+          '</div>'
+        ).join("");
+      } catch (e) {
+        showToast("Failed to load logs", "error");
+      }
+    }
+
+    // Helpers
+    function formatUptime(s) {
+      const d = Math.floor(s / 86400);
+      const h = Math.floor(s % 86400 / 3600);
+      const m = Math.floor(s % 3600 / 60);
+      if (d > 0) return d + "d " + h + "h " + m + "m";
+      if (h > 0) return h + "h " + m + "m";
+      return m + "m " + (s % 60) + "s";
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement("div");
+      div.appendChild(document.createTextNode(text));
+      return div.innerHTML;
+    }
+
+    // Init
+    loadConfig();
+    refreshStatus();
+  </script>
+</body>
+</html>

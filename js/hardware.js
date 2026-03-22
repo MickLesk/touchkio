@@ -1191,14 +1191,14 @@ const readFile = (path, sync = true) => {
   if (!sync) {
     return fsp
       .readFile(path, "utf8")
-      .then((content) => content.trim())
+      .then((content) => content.replace(/\0/g, "").trim())
       .catch((error) => {
         console.error(`Read File ${path} Async:`, error.message);
         return null;
       });
   }
   try {
-    return fs.readFileSync(path, "utf8").trim();
+    return fs.readFileSync(path, "utf8").replace(/\0/g, "").trim();
   } catch (error) {
     console.error(`Read File ${path} Sync:`, error.message);
   }

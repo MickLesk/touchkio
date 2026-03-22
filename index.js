@@ -5,6 +5,7 @@ const readline = require("readline/promises");
 const integration = require("./js/integration");
 const hardware = require("./js/hardware");
 const webview = require("./js/webview");
+const admin = require("./js/admin");
 const log = require("electron-log");
 const { app, powerMonitor } = require("electron");
 const Events = require("events");
@@ -66,6 +67,10 @@ app.whenReady().then(async () => {
       break;
     }
   }
+
+  // Admin server starts independently (should work without MQTT)
+  console.debug("admin.js: init()");
+  await admin.init();
 });
 
 /**
@@ -116,6 +121,7 @@ const initApp = async () => {
   // Register app quit events
   app.on("before-quit", () => {
     APP.exiting = true;
+    admin.stop();
   });
   app.on("will-quit", (e) => {
     e.preventDefault();
