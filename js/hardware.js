@@ -45,6 +45,18 @@ const init = async () => {
     return false;
   }
 
+  // Auto-detect WAYLAND_DISPLAY if not set (needed for wlopm in systemd services)
+  if (!process.env.WAYLAND_DISPLAY && sessionType() === "wayland") {
+    const xdgDir = process.env.XDG_RUNTIME_DIR || `/run/user/${process.getuid()}`;
+    for (const name of ["wayland-0", "wayland-1"]) {
+      if (fs.existsSync(path.join(xdgDir, name))) {
+        process.env.WAYLAND_DISPLAY = name;
+        console.info(`Auto-detected WAYLAND_DISPLAY: ${name}`);
+        break;
+      }
+    }
+  }
+
   // Init globals
   HARDWARE.session.user = sessionUser();
   HARDWARE.session.type = sessionType();
@@ -914,6 +926,33 @@ const runAptUpgrade = (callback = null) => {
 };
 
 /**
+ * Gets the disk usage of the root filesystem.
+ *
+ * @returns {Object} Object with total, used, available (in GB) and percent.
+ */
+const getDiskUsage = () => {
+  try {
+    const output = execSyncCommand("df", ["-B1", "/"]);
+    if (!output) return null;
+    const lines = output.trim().split("\n");
+    if (lines.length < 2) return null;
+    const parts = lines[1].split(/\s+/);
+    const total = parseInt(parts[1]) || 0;
+    const used = parseInt(parts[2]) || 0;
+    const available = parseInt(parts[3]) || 0;
+    const percent = total > 0 ? ((used / total) * 100) : 0;
+    return {
+      total: +(total / 1024 ** 3).toFixed(1),
+      used: +(used / 1024 ** 3).toFixed(1),
+      available: +(available / 1024 ** 3).toFixed(1),
+      percent: +percent.toFixed(1),
+    };
+  } catch {
+    return null;
+  }
+};
+
+/**
  * Shuts down the system using `sudo shutdown -h now`.
  *
  * This function executes the command asynchronously.
@@ -1280,6 +1319,7 @@ module.exports = {
   checkPackageUpgrades,
   runAptUpdate,
   runAptUpgrade,
+  getDiskUsage,
   shutdownSystem,
   rebootSystem,
   execSyncCommand,

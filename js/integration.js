@@ -50,11 +50,15 @@ const init = async () => {
   };
 
   // Init options
+  const availabilityTopic = `${APP.name}/${INTEGRATION.node}/availability`;
   const masked = password === null ? null : "*".repeat(password.length);
   const options = user === null || password === null ? {} : { username: user, password: password };
-  options.will = { topic: `${INTEGRATION.root}/kiosk/state`, payload: "Terminated", qos: 1, retain: true };
+  options.will = { topic: availabilityTopic, payload: "offline", qos: 1, retain: true };
   options.rejectUnauthorized = !("ignore_certificate_errors" in ARGS);
   options.reconnectPeriod = 10 * 1000;
+
+  // Store availability topic for use in entity configs
+  INTEGRATION.availabilityTopic = availabilityTopic;
 
   // Client connecting
   const connection = `${user}:${masked}@${url.toString()}`;
@@ -74,6 +78,9 @@ const init = async () => {
   // Client connected
   INTEGRATION.client
     .once("connect", () => {
+      // Publish availability online
+      INTEGRATION.client.publish(INTEGRATION.availabilityTopic, "online", { qos: 1, retain: true });
+
       // Stagger MQTT entity initialization to avoid broker publish storms on ARM64
       const initQueue = [
         // Controls
@@ -85,7 +92,7 @@ const init = async () => {
         initModel, initSerialNumber, initHostName, initNetworkAddress,
         initUpTime, initMemorySize, initMemoryUsage, initProcessorUsage,
         initProcessorTemperature, initBatteryLevel, initPackageUpgrades,
-        initLastActive,
+        initDiskUsage, initLastActive,
         // Diagnostic
         initScreenshot, initHeartbeat, initErrors, initVersion,
       ];
@@ -120,6 +127,7 @@ const init = async () => {
     .on("connect", () => {
       console.info(`MQTT Connected: ${connection}`);
       process.stdout.write("\n");
+      INTEGRATION.client.publish(INTEGRATION.availabilityTopic, "online", { qos: 1, retain: true });
       updateKiosk();
     })
     .on("offline", () => {
@@ -180,6 +188,7 @@ const update = async () => {
   updateProcessorUsage();
   updateProcessorTemperature();
   updateBatteryLevel();
+  updateDiskUsage();
 };
 
 /**
@@ -229,7 +238,8 @@ const cleanupStaleEntities = (serialNumber, discovery) => {
     ["sensor", "model"], ["sensor", "serial_number"], ["sensor", "network_address"],
     ["sensor", "host_name"], ["sensor", "up_time"], ["sensor", "memory_size"],
     ["sensor", "memory_usage"], ["sensor", "processor_usage"], ["sensor", "processor_temperature"],
-    ["sensor", "battery_level"], ["sensor", "package_upgrades"], ["sensor", "last_active"],
+    ["sensor", "battery_level"], ["sensor", "package_upgrades"], ["sensor", "disk_usage"],
+    ["sensor", "last_active"],
     ["image", "screenshot"], ["sensor", "heartbeat"], ["sensor", "errors"], ["sensor", "version"],
   ];
 
@@ -266,6 +276,10 @@ const registerHandler = (topic, handler) => {
 const publishConfig = (type, config) => {
   if (type === null || config === null) {
     return INTEGRATION.client;
+  }
+  // Auto-inject availability for all entities
+  if (INTEGRATION.availabilityTopic && !config.availability) {
+    config.availability = [{ topic: INTEGRATION.availabilityTopic, payload_available: "online", payload_not_available: "offline" }];
   }
   const path = config.unique_id.replace(`${INTEGRATION.node}_`, "");
   const root = `${INTEGRATION.discovery}/${type}/${INTEGRATION.node}/${path}/config`;
@@ -1332,6 +1346,39 @@ const initVersion = () => {
 const updateVersion = async () => {
   publishState("version", APP.version);
   publishAttributes("version", APP.build);
+};
+
+/**
+ * Initializes the disk usage sensor.
+ */
+const initDiskUsage = () => {
+  const root = `${INTEGRATION.root}/disk_usage`;
+  const config = {
+    name: "Disk Usage",
+    unique_id: `${INTEGRATION.node}_disk_usage`,
+    state_topic: `${root}/state`,
+    json_attributes_topic: `${root}/attributes`,
+    value_template: "{{ (value | float) | round(1) }}",
+    unit_of_measurement: "%",
+    icon: "mdi:harddisk",
+    device: INTEGRATION.device,
+  };
+  publishConfig("sensor", config);
+  updateDiskUsage();
+};
+
+/**
+ * Updates the disk usage sensor via the mqtt connection.
+ */
+const updateDiskUsage = async () => {
+  const disk = hardware.getDiskUsage();
+  if (!disk) return;
+  publishState("disk_usage", disk.percent);
+  publishAttributes("disk_usage", {
+    total_gb: disk.total,
+    used_gb: disk.used,
+    available_gb: disk.available,
+  });
 };
 
 module.exports = {

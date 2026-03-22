@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const http = require("http");
 const crypto = require("crypto");
+const { spawn } = require("child_process");
 const hardware = require("./hardware");
 const { app } = require("electron");
 
@@ -71,6 +72,12 @@ const handleRequest = (req, res) => {
     }
     if (pathname === "/api/logs") {
       return getLogs(req, res);
+    }
+    if (pathname === "/api/logs/stream") {
+      return getLogStream(req, res);
+    }
+    if (pathname === "/api/terminal" && req.method === "POST") {
+      return postTerminal(req, res);
     }
     if (pathname === "/api/restart") {
       return postRestart(req, res);
@@ -338,6 +345,79 @@ const getStatus = (req, res) => {
  */
 const getLogs = (req, res) => {
   json(res, 200, APP.logs || []);
+};
+
+/**
+ * SSE endpoint for live log streaming.
+ */
+const getLogStream = (req, res) => {
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+  });
+  res.write(":\n\n");
+
+  const onLog = (entry) => {
+    res.write(`data: ${JSON.stringify(entry)}\n\n`);
+  };
+  EVENTS.on("consoleLog", onLog);
+
+  req.on("close", () => {
+    EVENTS.removeListener("consoleLog", onLog);
+  });
+};
+
+/**
+ * Executes a shell command and returns the output.
+ */
+const postTerminal = (req, res) => {
+  let body = "";
+  req.on("data", (chunk) => {
+    if (body.length + chunk.length > 4096) {
+      req.destroy();
+      return;
+    }
+    body += chunk;
+  });
+  req.on("end", () => {
+    try {
+      const data = JSON.parse(body);
+      const command = (data.command || "").trim();
+      if (!command) {
+        return json(res, 400, { error: "No command provided" });
+      }
+
+      // Whitelist of allowed commands
+      const allowed = ["ls", "cat", "df", "free", "uptime", "uname", "whoami", "hostname",
+        "date", "pwd", "id", "top", "ps", "ip", "ss", "systemctl", "journalctl",
+        "head", "tail", "wc", "grep", "find", "du", "lsblk", "mount",
+        "vcgencmd", "dpkg", "apt", "apt-get", "apt-cache", "echo", "printenv",
+        "wlopm", "loginctl", "timedatectl", "hostnamectl", "lscpu", "lsusb"];
+      const firstWord = command.split(/[\s;|&]/)[0];
+      if (!allowed.includes(firstWord)) {
+        return json(res, 403, { error: `Command '${firstWord}' is not allowed` });
+      }
+
+      const child = spawn("bash", ["-c", command], {
+        timeout: 15000,
+        env: { ...process.env, TERM: "dumb" },
+      });
+
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (d) => { stdout += d; if (stdout.length > 65536) child.kill(); });
+      child.stderr.on("data", (d) => { stderr += d; if (stderr.length > 65536) child.kill(); });
+      child.on("close", (code) => {
+        json(res, 200, { stdout, stderr, exitCode: code });
+      });
+      child.on("error", (err) => {
+        json(res, 500, { error: err.message });
+      });
+    } catch (error) {
+      json(res, 400, { error: "Invalid JSON: " + error.message });
+    }
+  });
 };
 
 /**

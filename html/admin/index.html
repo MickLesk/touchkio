@@ -294,11 +294,40 @@
     .status-item .value { color: var(--text); font-family: monospace; }
 
     /* Logs Tab */
+    .log-controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .log-controls .log-status {
+      font-size: 12px;
+      color: var(--text-dim);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .log-controls .log-status .live-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--error);
+      display: inline-block;
+    }
+    .log-controls .log-status .live-dot.connected {
+      background: var(--success);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
     .log-container {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       overflow: hidden;
+      max-height: 600px;
+      overflow-y: auto;
     }
     .log-entry {
       display: grid;
@@ -337,8 +366,69 @@
         grid-template-columns: 1fr;
         gap: 2px;
       }
+      .terminal-output {
+        font-size: 11px;
+      }
       nav { overflow-x: auto; }
     }
+
+    /* Terminal Tab */
+    .terminal-container {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .terminal-output {
+      background: #0d1117;
+      color: #c9d1d9;
+      font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+      font-size: 13px;
+      padding: 16px;
+      min-height: 400px;
+      max-height: 600px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      line-height: 1.5;
+    }
+    .terminal-output .cmd { color: var(--accent); }
+    .terminal-output .stdout { color: #c9d1d9; }
+    .terminal-output .stderr { color: var(--warning); }
+    .terminal-output .error { color: var(--error); }
+    .terminal-input-row {
+      display: flex;
+      border-top: 1px solid var(--border);
+      background: #0d1117;
+    }
+    .terminal-prompt {
+      padding: 10px 0 10px 16px;
+      color: var(--success);
+      font-family: monospace;
+      font-size: 14px;
+      user-select: none;
+    }
+    .terminal-input-row input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: #c9d1d9;
+      font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+      font-size: 14px;
+      padding: 10px 16px 10px 6px;
+      outline: none;
+    }
+    .terminal-input-row button {
+      background: var(--surface2);
+      border: none;
+      color: var(--text);
+      padding: 10px 20px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: background 0.2s;
+    }
+    .terminal-input-row button:hover { background: var(--border); }
+    .terminal-input-row button:disabled { opacity: 0.5; cursor: not-allowed; }
   </style>
 </head>
 <body>
@@ -361,6 +451,7 @@
     <button data-tab="preview">Live Preview</button>
     <button data-tab="status">System Status</button>
     <button data-tab="logs">Logs</button>
+    <button data-tab="terminal">Terminal</button>
   </nav>
 
   <main>
@@ -530,11 +621,36 @@
 
     <!-- Logs Tab -->
     <div id="tab-logs" class="tab-content">
-      <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
-        <button class="btn btn-secondary" onclick="refreshLogs()">Refresh Logs</button>
+      <div class="log-controls">
+        <div class="log-status">
+          <span class="live-dot" id="log-live-dot"></span>
+          <span id="log-live-text">Connecting...</span>
+        </div>
+        <div style="display:flex;gap:10px">
+          <button class="btn btn-secondary" onclick="clearLogView()">Clear View</button>
+          <button class="btn btn-secondary" onclick="refreshLogs()">Load History</button>
+        </div>
       </div>
       <div class="log-container" id="log-container">
-        <div class="log-empty">No log entries</div>
+        <div class="log-empty">Connecting to live stream...</div>
+      </div>
+    </div>
+
+    <!-- Terminal Tab -->
+    <div id="tab-terminal" class="tab-content">
+      <div class="section" style="margin-bottom:16px">
+        <div class="section-header">Remote Terminal</div>
+        <div class="section-body" style="font-size:13px;color:var(--text-dim)">
+          Execute system commands on the TouchKio device. Only whitelisted commands are allowed.
+        </div>
+      </div>
+      <div class="terminal-container">
+        <div class="terminal-output" id="terminal-output"><span class="stdout">Welcome to TouchKio Terminal\nType a command and press Enter.\n\n</span></div>
+        <div class="terminal-input-row">
+          <span class="terminal-prompt">$&nbsp;</span>
+          <input type="text" id="terminal-input" placeholder="e.g. df -h, free -h, journalctl --user -u touchkio -n 50" autocomplete="off" spellcheck="false">
+          <button id="terminal-run" onclick="runTerminalCommand()">Run</button>
+        </div>
       </div>
     </div>
   </main>
@@ -554,7 +670,8 @@
         document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
         if (btn.dataset.tab === "preview") startPreview();
         else if (btn.dataset.tab === "status") refreshStatus();
-        else if (btn.dataset.tab === "logs") refreshLogs();
+        else if (btn.dataset.tab === "logs") { connectLogStream(); refreshLogs(); }
+        else if (btn.dataset.tab === "terminal") document.getElementById("terminal-input").focus();
         else stopPreview();
       });
     });
@@ -778,6 +895,55 @@
     }
 
     // Logs
+    let logStream = null;
+
+    function connectLogStream() {
+      if (logStream) return;
+      const dot = document.getElementById("log-live-dot");
+      const text = document.getElementById("log-live-text");
+
+      logStream = new EventSource(API + "/api/logs/stream");
+      logStream.onopen = () => {
+        dot.classList.add("connected");
+        text.textContent = "Live";
+      };
+      logStream.onmessage = (e) => {
+        try {
+          const entry = JSON.parse(e.data);
+          const container = document.getElementById("log-container");
+          // Remove empty placeholder
+          const empty = container.querySelector(".log-empty");
+          if (empty) empty.remove();
+
+          const div = document.createElement("div");
+          div.className = "log-entry";
+          div.innerHTML =
+            '<span class="time">' + new Date(entry.time).toLocaleString() + '</span>' +
+            '<span class="level ' + entry.level + '">' + entry.level + '</span>' +
+            '<span class="message">' + escapeHtml(entry.text) + '</span>';
+          container.appendChild(div);
+
+          // Auto-scroll and limit entries
+          while (container.children.length > 500) container.removeChild(container.firstChild);
+          container.scrollTop = container.scrollHeight;
+        } catch (err) {}
+      };
+      logStream.onerror = () => {
+        dot.classList.remove("connected");
+        text.textContent = "Disconnected";
+        logStream.close();
+        logStream = null;
+        // Reconnect after 3s
+        setTimeout(() => {
+          if (document.getElementById("tab-logs").classList.contains("active")) connectLogStream();
+        }, 3000);
+      };
+    }
+
+    function clearLogView() {
+      document.getElementById("log-container").innerHTML = '<div class="log-empty">Log view cleared</div>';
+    }
+
     async function refreshLogs() {
       try {
         const res = await fetch(API + "/api/logs");
@@ -794,9 +960,83 @@
           '<span class="message">' + escapeHtml(entry.text) + '</span>' +
           '</div>'
         ).join("");
+        container.scrollTop = container.scrollHeight;
       } catch (e) {
         showToast("Failed to load logs", "error");
       }
+    }
+
+    // Terminal
+    const termHistory = [];
+    let termHistoryIdx = -1;
+
+    document.getElementById("terminal-input").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        runTerminalCommand();
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        if (termHistory.length > 0 && termHistoryIdx < termHistory.length - 1) {
+          termHistoryIdx++;
+          e.target.value = termHistory[termHistoryIdx];
+        }
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        if (termHistoryIdx > 0) {
+          termHistoryIdx--;
+          e.target.value = termHistory[termHistoryIdx];
+        } else {
+          termHistoryIdx = -1;
+          e.target.value = "";
+        }
+      }
+    });
+
+    async function runTerminalCommand() {
+      const input = document.getElementById("terminal-input");
+      const output = document.getElementById("terminal-output");
+      const btn = document.getElementById("terminal-run");
+      const command = input.value.trim();
+      if (!command) return;
+
+      // Add to history
+      termHistory.unshift(command);
+      if (termHistory.length > 50) termHistory.pop();
+      termHistoryIdx = -1;
+
+      // Show command
+      output.innerHTML += '<span class="cmd">$ ' + escapeHtml(command) + '</span>\n';
+      input.value = "";
+      btn.disabled = true;
+      input.disabled = true;
+
+      try {
+        const res = await fetch(API + "/api/terminal", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ command }),
+        });
+        const data = await res.json();
+        if (res.status === 403) {
+          output.innerHTML += '<span class="error">' + escapeHtml(data.error) + '</span>\n';
+        } else if (data.error) {
+          output.innerHTML += '<span class="error">' + escapeHtml(data.error) + '</span>\n';
+        } else {
+          if (data.stdout) output.innerHTML += '<span class="stdout">' + escapeHtml(data.stdout) + '</span>';
+          if (data.stderr) output.innerHTML += '<span class="stderr">' + escapeHtml(data.stderr) + '</span>';
+          if (data.exitCode !== 0 && data.exitCode != null) {
+            output.innerHTML += '<span class="error">[exit code: ' + data.exitCode + ']</span>\n';
+          }
+        }
+      } catch (e) {
+        output.innerHTML += '<span class="error">Connection failed</span>\n';
+      }
+
+      output.innerHTML += '\n';
+      output.scrollTop = output.scrollHeight;
+      btn.disabled = false;
+      input.disabled = false;
+      input.focus();
     }
 
     // Helpers

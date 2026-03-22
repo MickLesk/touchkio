@@ -270,8 +270,8 @@ const initLog = async () => {
         level: message.level,
         text: text,
       });
-      if (APP.logs.length > 10) {
-        APP.logs.splice(10);
+      if (APP.logs.length > 500) {
+        APP.logs.splice(500);
       }
       EVENTS.emit("consoleLog", APP.logs[0]);
     }
