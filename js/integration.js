@@ -74,45 +74,30 @@ const init = async () => {
   // Client connected
   INTEGRATION.client
     .once("connect", () => {
-      // Init client controls
-      initApp();
-      initShutdown();
-      initReboot();
-      initRefresh();
-      initKiosk();
-      initTheme();
-      initDisplay();
-      initVolume();
-      initKeyboard();
-      initPageNumber();
-      initPageZoom();
-      initPageUrl();
+      // Stagger MQTT entity initialization to avoid broker publish storms on ARM64
+      const initQueue = [
+        // Controls
+        initApp, initShutdown, initReboot, initRefresh,
+        initAptUpdate, initAptUpgrade, initKiosk, initTheme,
+        initDisplay, initVolume, initKeyboard, initPageNumber,
+        initPageZoom, initPageUrl,
+        // Sensors
+        initModel, initSerialNumber, initHostName, initNetworkAddress,
+        initUpTime, initMemorySize, initMemoryUsage, initProcessorUsage,
+        initProcessorTemperature, initBatteryLevel, initPackageUpgrades,
+        initLastActive,
+        // Diagnostic
+        initScreenshot, initHeartbeat, initErrors, initVersion,
+      ];
+      initQueue.forEach((fn, i) => setTimeout(fn, i * 25));
 
-      // Init client sensors
-      initModel();
-      initSerialNumber();
-      initHostName();
-      initNetworkAddress();
-      initUpTime();
-      initMemorySize();
-      initMemoryUsage();
-      initProcessorUsage();
-      initProcessorTemperature();
-      initBatteryLevel();
-      initPackageUpgrades();
-      initLastActive();
+      // Mark initialized after staggered init completes
+      setTimeout(() => {
+        INTEGRATION.initialized = true;
 
-      // Init client diagnostic
-      initScreenshot();
-      initHeartbeat();
-      initErrors();
-      initVersion();
-
-      // Integration initialized
-      INTEGRATION.initialized = true;
-
-      // Clean up stale entities from previous buggy node ID (null byte issue)
-      cleanupStaleEntities(serialNumber, discovery);
+        // Clean up stale entities from previous buggy node ID (null byte issue)
+        cleanupStaleEntities(serialNumber, discovery);
+      }, initQueue.length * 25 + 100);
 
       // Register global events
       EVENTS.on("updateApp", updateApp);
@@ -211,7 +196,7 @@ const removeConfig = (type, config) => {
   const path = config.unique_id.replace(`${INTEGRATION.node}_`, "");
   const root = `${INTEGRATION.discovery}/${type}/${INTEGRATION.node}/${path}/config`;
   console.debug(`integration.js: removeConfig(${path})`);
-  return INTEGRATION.client.publish(root, "", { qos: 1, retain: true });
+  return INTEGRATION.client.publish(root, JSON.stringify({}), { qos: 1, retain: true });
 };
 
 /**
@@ -238,6 +223,7 @@ const cleanupStaleEntities = (serialNumber, discovery) => {
 
   const entityTypes = [
     ["update", "app"], ["button", "shutdown"], ["button", "reboot"], ["button", "refresh"],
+    ["button", "apt_update"], ["button", "apt_upgrade"],
     ["select", "kiosk"], ["select", "theme"], ["light", "display"], ["number", "volume"],
     ["switch", "keyboard"], ["number", "page_number"], ["number", "page_zoom"], ["text", "page_url"],
     ["sensor", "model"], ["sensor", "serial_number"], ["sensor", "network_address"],
@@ -249,12 +235,12 @@ const cleanupStaleEntities = (serialNumber, discovery) => {
 
   for (const [type, path] of entityTypes) {
     const topic = `${discovery}/${type}/${buggyNode}/${path}/config`;
-    INTEGRATION.client.publish(topic, "", { qos: 1, retain: true });
+    INTEGRATION.client.publish(topic, JSON.stringify({}), { qos: 1, retain: true });
   }
 
   // Also clear the stale state topics
   const stateRoot = `${APP.name}/${buggyNode}`;
-  INTEGRATION.client.publish(`${stateRoot}/kiosk/state`, "", { qos: 1, retain: true });
+  INTEGRATION.client.publish(`${stateRoot}/kiosk/state`, JSON.stringify({}), { qos: 1, retain: true });
 };
 
 /**
@@ -442,6 +428,68 @@ const initRefresh = () => {
     console.verbose("Refreshing webview...");
     hardware.setDisplayStatus("ON", () => {
       EVENTS.emit("reloadView");
+    });
+  });
+};
+
+/**
+ * Initializes the apt update button and handles the execute logic.
+ */
+const initAptUpdate = () => {
+  const root = `${INTEGRATION.root}/apt_update`;
+  const config = {
+    name: "Apt Update",
+    unique_id: `${INTEGRATION.node}_apt_update`,
+    command_topic: `${root}/execute`,
+    icon: "mdi:package-variant",
+    entity_category: "config",
+    device: INTEGRATION.device,
+  };
+  if (!HARDWARE.support.sudoRights) {
+    removeConfig("button", config);
+    return;
+  }
+  publishConfig("button", config);
+  registerHandler(config.command_topic, (message) => {
+    console.info("Running apt update...");
+    hardware.runAptUpdate((reply, error) => {
+      if (error) {
+        console.warn("Apt Update Failed:", error);
+      } else {
+        console.info("Apt Update Complete");
+        updatePackageUpgrades();
+      }
+    });
+  });
+};
+
+/**
+ * Initializes the apt upgrade button and handles the execute logic.
+ */
+const initAptUpgrade = () => {
+  const root = `${INTEGRATION.root}/apt_upgrade`;
+  const config = {
+    name: "Apt Upgrade",
+    unique_id: `${INTEGRATION.node}_apt_upgrade`,
+    command_topic: `${root}/execute`,
+    icon: "mdi:package-up",
+    entity_category: "config",
+    device: INTEGRATION.device,
+  };
+  if (!HARDWARE.support.sudoRights) {
+    removeConfig("button", config);
+    return;
+  }
+  publishConfig("button", config);
+  registerHandler(config.command_topic, (message) => {
+    console.info("Running apt upgrade...");
+    hardware.runAptUpgrade((reply, error) => {
+      if (error) {
+        console.warn("Apt Upgrade Failed:", error);
+      } else {
+        console.info("Apt Upgrade Complete");
+        updatePackageUpgrades();
+      }
     });
   });
 };

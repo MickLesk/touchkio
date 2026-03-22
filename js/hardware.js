@@ -149,9 +149,9 @@ const init = async () => {
     });
   }
 
-  // Monitor display changes (1s)
+  // Monitor display changes (3s)
   setDisplayStatus("ON", () => {
-    interval(update, 1 * 1000);
+    interval(update, 3 * 1000);
   });
 
   return true;
@@ -885,6 +885,32 @@ const checkPackageUpgrades = () => {
 };
 
 /**
+ * Runs `sudo apt-get update` to refresh package lists.
+ *
+ * @param {Function} callback - A callback function that receives the output or error.
+ */
+const runAptUpdate = (callback = null) => {
+  if (!HARDWARE.support.sudoRights || !commandExists("apt-get")) {
+    if (typeof callback === "function") callback(null, "Not supported");
+    return;
+  }
+  execAsyncCommand("sudo", ["apt-get", "update", "-qq"], callback);
+};
+
+/**
+ * Runs `sudo apt-get upgrade -y` to upgrade all packages.
+ *
+ * @param {Function} callback - A callback function that receives the output or error.
+ */
+const runAptUpgrade = (callback = null) => {
+  if (!HARDWARE.support.sudoRights || !commandExists("apt-get")) {
+    if (typeof callback === "function") callback(null, "Not supported");
+    return;
+  }
+  execAsyncCommand("sudo", ["apt-get", "upgrade", "-y", "-qq"], callback);
+};
+
+/**
  * Shuts down the system using `sudo shutdown -h now`.
  *
  * This function executes the command asynchronously.
@@ -1249,6 +1275,8 @@ module.exports = {
   getKeyboardVisibility,
   setKeyboardVisibility,
   checkPackageUpgrades,
+  runAptUpdate,
+  runAptUpgrade,
   shutdownSystem,
   rebootSystem,
   execSyncCommand,

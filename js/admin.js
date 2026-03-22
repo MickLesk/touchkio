@@ -75,6 +75,18 @@ const handleRequest = (req, res) => {
     if (pathname === "/api/restart") {
       return postRestart(req, res);
     }
+    if (pathname === "/api/apt-update" && req.method === "POST") {
+      return postAptUpdate(req, res);
+    }
+    if (pathname === "/api/apt-upgrade" && req.method === "POST") {
+      return postAptUpgrade(req, res);
+    }
+    if (pathname === "/api/reboot" && req.method === "POST") {
+      return postReboot(req, res);
+    }
+    if (pathname === "/api/shutdown" && req.method === "POST") {
+      return postShutdown(req, res);
+    }
 
     // Static files from html/admin/
     if (pathname.startsWith("/static/")) {
@@ -336,6 +348,66 @@ const postRestart = (req, res) => {
   setTimeout(() => {
     app.relaunch();
     app.exit(0);
+  }, 500);
+};
+
+/**
+ * Runs apt-get update.
+ */
+const postAptUpdate = (req, res) => {
+  if (!HARDWARE?.support?.sudoRights) {
+    return json(res, 400, { error: "No sudo rights" });
+  }
+  json(res, 200, { success: true, message: "Apt update started..." });
+  hardware.runAptUpdate((reply, error) => {
+    if (error) {
+      console.warn("Apt Update Failed:", error);
+    } else {
+      console.info("Apt Update Complete");
+    }
+  });
+};
+
+/**
+ * Runs apt-get upgrade.
+ */
+const postAptUpgrade = (req, res) => {
+  if (!HARDWARE?.support?.sudoRights) {
+    return json(res, 400, { error: "No sudo rights" });
+  }
+  json(res, 200, { success: true, message: "Apt upgrade started..." });
+  hardware.runAptUpgrade((reply, error) => {
+    if (error) {
+      console.warn("Apt Upgrade Failed:", error);
+    } else {
+      console.info("Apt Upgrade Complete");
+    }
+  });
+};
+
+/**
+ * Triggers a system reboot.
+ */
+const postReboot = (req, res) => {
+  if (!HARDWARE?.support?.sudoRights) {
+    return json(res, 400, { error: "No sudo rights" });
+  }
+  json(res, 200, { success: true, message: "Rebooting..." });
+  setTimeout(() => {
+    hardware.rebootSystem();
+  }, 500);
+};
+
+/**
+ * Triggers a system shutdown.
+ */
+const postShutdown = (req, res) => {
+  if (!HARDWARE?.support?.sudoRights) {
+    return json(res, 400, { error: "No sudo rights" });
+  }
+  json(res, 200, { success: true, message: "Shutting down..." });
+  setTimeout(() => {
+    hardware.shutdownSystem();
   }, 500);
 };
 

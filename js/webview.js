@@ -1153,6 +1153,7 @@ const viewEvents = async () => {
 
     // Handle webview mouse events (mouseMove throttled to 100ms)
     let lastMoveTime = 0;
+    let lastActivityUpdate = 0;
     view.webContents.on("before-mouse-event", (e, mouse) => {
       // Check mouse event type
       switch (mouse.type) {
@@ -1174,8 +1175,9 @@ const viewEvents = async () => {
             WEBVIEW.tracker.pointer.time = new Date(moveNow);
             WEBVIEW.tracker.pointer.position = posNew;
 
-            // Update last active on pointer position change
-            if (delta > 30) {
+            // Update last active on pointer position change (max once per 5s)
+            if (delta > 30 && moveNow - lastActivityUpdate > 5000) {
+              lastActivityUpdate = moveNow;
               console.info("Update Last Active");
               integration.update();
             }
@@ -1273,7 +1275,7 @@ const appEvents = async () => {
     if (APP.exiting) {
       return;
     }
-    captureView(5000).then(() => {
+    captureView(1000).then(() => {
       EVENTS.emit("updateScreenshot");
     });
   }, screenshotInterval);

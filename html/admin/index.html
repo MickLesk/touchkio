@@ -515,6 +515,16 @@
 
     <!-- Status Tab -->
     <div id="tab-status" class="tab-content">
+      <div class="section" style="margin-bottom:20px">
+        <div class="section-header">System Actions</div>
+        <div class="section-body" style="display:flex;flex-wrap:wrap;gap:10px">
+          <button class="btn btn-secondary" onclick="runAction('apt-update', this)">&#128230; Apt Update</button>
+          <button class="btn btn-secondary" onclick="runAction('apt-upgrade', this)">&#11014; Apt Upgrade</button>
+          <button class="btn btn-secondary" onclick="runAction('restart', this)">&#128260; Restart App</button>
+          <button class="btn btn-danger" onclick="runAction('reboot', this)">&#128260; Reboot System</button>
+          <button class="btn btn-danger" onclick="runAction('shutdown', this)">&#9211; Shutdown System</button>
+        </div>
+      </div>
       <div class="status-grid" id="status-grid"></div>
     </div>
 
@@ -808,6 +818,31 @@
     // Init
     loadConfig();
     refreshStatus();
+
+    // System actions
+    async function runAction(action, btn) {
+      const dangerous = ["reboot", "shutdown"];
+      if (dangerous.includes(action) && !confirm("Are you sure you want to " + action + " the system?")) return;
+      if (action === "restart" && !confirm("Restart TouchKio?")) return;
+      const origText = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = "&#9203; Running...";
+      try {
+        const res = await fetch(API + "/api/" + action, { method: "POST" });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(data.message || "Action started", "success");
+          if (["restart", "reboot", "shutdown"].includes(action)) {
+            setTimeout(() => window.location.reload(), 5000);
+          }
+        } else {
+          showToast(data.error || "Action failed", "error");
+        }
+      } catch (e) {
+        showToast("Connection lost", "warning");
+      }
+      setTimeout(() => { btn.disabled = false; btn.innerHTML = origText; }, 3000);
+    }
   </script>
 </body>
 </html>
