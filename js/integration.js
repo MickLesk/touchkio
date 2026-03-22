@@ -207,7 +207,7 @@ const removeConfig = (type, config) => {
   const path = config.unique_id.replace(`${INTEGRATION.node}_`, "");
   const root = `${INTEGRATION.discovery}/${type}/${INTEGRATION.node}/${path}/config`;
   console.debug(`integration.js: removeConfig(${path})`);
-  return INTEGRATION.client.publish(root, JSON.stringify({}), { qos: 1, retain: true });
+  return INTEGRATION.client.publish(root, "", { qos: 1, retain: true });
 };
 
 /**

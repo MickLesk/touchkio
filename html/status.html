@@ -1,8 +1,15 @@
 <!doctype html>
-<html>
+<html data-theme="hidden">
   <head>
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'" />
     <style>
+      [data-theme="hidden"] {
+        --primary-color: rgba(0, 0, 0, 0);
+        --background-color: rgba(0, 0, 0, 0);
+        --minimize-color: rgba(0, 0, 0, 0);
+        --fullscreen-color: rgba(0, 0, 0, 0);
+        --terminate-color: rgba(0, 0, 0, 0);
+      }
       [data-theme="dark"] {
         --primary-color: rgba(229, 229, 229, 1);
         --background-color: rgba(66, 67, 68, 1);
