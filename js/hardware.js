@@ -18,6 +18,7 @@ global.HARDWARE = global.HARDWARE || {
       path: null,
       command: null,
       value: {},
+      graceUntil: 0,
     },
     brightness: {
       path: null,
@@ -165,8 +166,8 @@ const update = async () => {
     return;
   }
 
-  // Check if display status has changed
-  if (HARDWARE.support.displayStatus) {
+  // Check if display status has changed (skip during grace period after manual set)
+  if (HARDWARE.support.displayStatus && Date.now() > HARDWARE.display.status.graceUntil) {
     let displayStatusChanged = false;
 
     // Use sysfs dpms path if available
@@ -607,6 +608,8 @@ const setDisplayStatus = (status, callback = null) => {
     if (typeof callback === "function") callback(null, "Invalid status");
     return;
   }
+  // Grace period: ignore sysfs polling for 5s after manual change
+  HARDWARE.display.status.graceUntil = Date.now() + 5000;
   switch (HARDWARE.display.status.command) {
     case "wlopm":
       execAsyncCommand("wlopm", [`--${status.toLowerCase()}`, "*"], callback);

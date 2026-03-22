@@ -78,7 +78,7 @@ const init = async () => {
       const initQueue = [
         // Controls
         initApp, initShutdown, initReboot, initRefresh,
-        initAptUpdate, initAptUpgrade, initKiosk, initTheme,
+        initAptUpdate, initAptUpgrade, initAptStatus, initKiosk, initTheme,
         initDisplay, initVolume, initKeyboard, initPageNumber,
         initPageZoom, initPageUrl,
         // Sensors
@@ -223,7 +223,7 @@ const cleanupStaleEntities = (serialNumber, discovery) => {
 
   const entityTypes = [
     ["update", "app"], ["button", "shutdown"], ["button", "reboot"], ["button", "refresh"],
-    ["button", "apt_update"], ["button", "apt_upgrade"],
+    ["button", "apt_update"], ["button", "apt_upgrade"], ["sensor", "apt_status"],
     ["select", "kiosk"], ["select", "theme"], ["light", "display"], ["number", "volume"],
     ["switch", "keyboard"], ["number", "page_number"], ["number", "page_zoom"], ["text", "page_url"],
     ["sensor", "model"], ["sensor", "serial_number"], ["sensor", "network_address"],
@@ -452,13 +452,18 @@ const initAptUpdate = () => {
   publishConfig("button", config);
   registerHandler(config.command_topic, (message) => {
     console.info("Running apt update...");
+    updateAptStatus("Updating...");
     hardware.runAptUpdate((reply, error) => {
       if (error) {
         console.warn("Apt Update Failed:", error);
+        updateAptStatus("Update failed");
       } else {
         console.info("Apt Update Complete");
+        updateAptStatus("Update complete");
         updatePackageUpgrades();
       }
+      // Reset to idle after 30s
+      setTimeout(() => updateAptStatus("Idle"), 30000);
     });
   });
 };
@@ -483,15 +488,48 @@ const initAptUpgrade = () => {
   publishConfig("button", config);
   registerHandler(config.command_topic, (message) => {
     console.info("Running apt upgrade...");
+    updateAptStatus("Upgrading...");
     hardware.runAptUpgrade((reply, error) => {
       if (error) {
         console.warn("Apt Upgrade Failed:", error);
+        updateAptStatus("Upgrade failed");
       } else {
         console.info("Apt Upgrade Complete");
+        updateAptStatus("Upgrade complete");
         updatePackageUpgrades();
       }
+      // Reset to idle after 30s
+      setTimeout(() => updateAptStatus("Idle"), 30000);
     });
   });
+};
+
+/**
+ * Initializes the apt status sensor.
+ */
+const initAptStatus = () => {
+  const root = `${INTEGRATION.root}/apt_status`;
+  const config = {
+    name: "Apt Status",
+    unique_id: `${INTEGRATION.node}_apt_status`,
+    state_topic: `${root}/state`,
+    icon: "mdi:package-check",
+    entity_category: "diagnostic",
+    device: INTEGRATION.device,
+  };
+  if (!HARDWARE.support.sudoRights) {
+    removeConfig("sensor", config);
+    return;
+  }
+  publishConfig("sensor", config);
+  updateAptStatus("Idle");
+};
+
+/**
+ * Updates the apt status sensor via the mqtt connection.
+ */
+const updateAptStatus = (status) => {
+  publishState("apt_status", status);
 };
 
 /**
@@ -598,11 +636,13 @@ const initDisplay = () => {
       return;
     }
     console.verbose("Set Display Status:", status);
+    // Immediately publish intended state to avoid polling race condition
+    publishState("display/power", status);
     hardware.setDisplayStatus(status, (reply, error) => {
-      if (!error) {
-        hardware.update();
-      } else {
+      if (error) {
         console.warn("Command Failed:", error);
+        // Revert: publish actual state on failure
+        updateDisplay();
       }
     });
   });

@@ -1238,13 +1238,15 @@ const appEvents = async () => {
     }
     toggleStatus(["Framed", "Minimized"].includes(status) ? "ON" : "OFF");
   });
-  EVENTS.on("updateKeyboard", () => {
+  EVENTS.on("updateKeyboard", async () => {
     const status = WEBVIEW.tracker.window.status;
     const visibility = hardware.getKeyboardVisibility();
     if (visibility === "ON" && ["Fullscreen"].includes(status)) {
-      WEBVIEW.window.setStatus("Maximized");
+      await WEBVIEW.window.setStatus("Maximized");
+      setTimeout(resizeView, 200);
     } else if (visibility === "OFF" && ["Maximized"].includes(status)) {
-      WEBVIEW.window.setStatus("Fullscreen");
+      await WEBVIEW.window.setStatus("Fullscreen");
+      setTimeout(resizeView, 200);
     }
   });
 
